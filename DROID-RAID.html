@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DROID-RAID Swarm Simulation with Sensor Variability</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background-color: #fff1eb;
+    }
+    .info {
+      font-family: sans-serif;
+      color: #543D5E;
+    }
+  </style>
+</head>
+<body>
+  <h1>DROID-RAID Proof of Concept v0.9</h1>
+  <div class="info">
+    <p>FPS: <span data-fps>60</span></p>
+    <p>Drone Count: <span data-count>10</span></p>
+  </div>
+  
+  <canvas id="swarmCanvas"></canvas>
+
+  <script>
+    // Constants based on drone sizes and FAA limits
+    const DRONE_COUNT = 10;
+    const RADIUS = 80; // Distance drones maintain around the adversary
+    const DRONE_SIZE = 8; // Smaller drone size to reflect hobbyist drones
+    const BASE_TURBULENCE_FACTOR = 0.5; // Reduced base turbulence
+    const BASE_CORRECTIVE_FORCE = 0.01; // Base corrective force
+    const MASS_ADVERSARY = 1.5; // Average drone mass in kg for adversary
+    const MASS_BOID = 0.25; // Hobbyist drone mass in kg for boids
+    const WIND_RESISTANCE = 0.001; // Wind resistance in air, affecting hobbyist drones more
+    const canvas = document.getElementById('swarmCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // Drones setup (geometrically arranged)
+    const drones = [];
+    const threat = [0, 0]; // Adversary position
+    let threatSpeed = 3; // Reduced movement speed for realism (in m/s)
+
+    // Arrow key control
+    let keys = {
+      ArrowUp: false,
+      ArrowDown: false,
+      ArrowLeft: false,
+      ArrowRight: false
+    };
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key in keys) keys[e.key] = true;
+    });
+
+    document.addEventListener('keyup', (e) => {
+      if (e.key in keys) keys[e.key] = false;
+    });
+
+    // Setup canvas size
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      initializeDrones(); // Re-initialize drones when resizing the screen
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    // Initialize drones in a circular pattern
+    function initializeDrones() {
+      drones.length = 0;
+      const angleIncrement = (2 * Math.PI) / DRONE_COUNT;
+
+      for (let i = 0; i < DRONE_COUNT; i++) {
+        const angle = i * angleIncrement;
+        // Each drone gets slightly different parameters for corrective force and turbulence sensitivity
+        drones.push({
+          angle,
+          x: threat[0] + Math.cos(angle) * RADIUS,
+          y: threat[1] + Math.sin(angle) * RADIUS,
+          vx: 0, // Velocity in X direction
+          vy: 0, // Velocity in Y direction
+          mass: MASS_BOID, // Set mass for hobbyist drones
+          correctiveForce: BASE_CORRECTIVE_FORCE * (0.9 + Math.random() * 0.2), // +/-10% variation
+          turbulenceFactor: BASE_TURBULENCE_FACTOR * (0.9 + Math.random() * 0.2) // +/-10% variation
+        });
+      }
+
+      // Place the adversary in the center of the canvas
+      threat[0] = canvas.width / 2;
+      threat[1] = canvas.height / 2;
+    }
+
+    // FPS management and UI
+    let fpsCounter = 60;
+    let frameText = document.querySelector('[data-fps]');
+    let countText = document.querySelector('[data-count]');
+    
+    function updateFPS(rate) {
+      fpsCounter = rate;
+      frameText.textContent = Math.round(rate);
+      countText.textContent = drones.length;
+    }
+
+    // Move the threat (adversary) using arrow keys
+    function updateThreat() {
+      if (keys.ArrowUp) threat[1] -= threatSpeed;
+      if (keys.ArrowDown) threat[1] += threatSpeed;
+      if (keys.ArrowLeft) threat[0] -= threatSpeed;
+      if (keys.ArrowRight) threat[0] += threatSpeed;
+
+      // Keep threat within canvas bounds
+      threat[0] = Math.max(0, Math.min(canvas.width, threat[0]));
+      threat[1] = Math.max(0, Math.min(canvas.height, threat[1]));
+    }
+
+    // Drones logic with turbulence, mass, and sensor variability
+    function tick() {
+      updateThreat();
+
+      // Update drones' positions with turbulence and corrective force
+      drones.forEach((drone) => {
+        const angle = drone.angle;
+        const targetX = threat[0] + Math.cos(angle) * RADIUS;
+        const targetY = threat[1] + Math.sin(angle) * RADIUS;
+
+        // Apply turbulence (random noise) scaled by wind resistance, drone mass, and variability
+        const turbulenceX = (Math.random() - 0.5) * drone.turbulenceFactor * WIND_RESISTANCE / drone.mass;
+        const turbulenceY = (Math.random() - 0.5) * drone.turbulenceFactor * WIND_RESISTANCE / drone.mass;
+
+        // Apply corrective force to maintain formation, with slight variation
+        drone.vx += (targetX - drone.x) * drone.correctiveForce / drone.mass + turbulenceX;
+        drone.vy += (targetY - drone.y) * drone.correctiveForce / drone.mass + turbulenceY;
+
+        // Update position, reflecting inertia and mass
+        drone.x += drone.vx;
+        drone.y += drone.vy;
+
+        // Apply simple air drag (wind resistance)
+        drone.vx *= 0.99;
+        drone.vy *= 0.99;
+      });
+    }
+
+    // Draw function for canvas
+    function draw() {
+      // Clear the canvas
+      ctx.fillStyle = 'rgba(255,241,235,1)'; // No trails in this version
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Draw the threat (red circle)
+      ctx.fillStyle = '#FF0000';
+      ctx.beginPath();
+      ctx.arc(threat[0], threat[1], 12, 0, Math.PI * 2, false); // Adjust size for adversary drone
+      ctx.fill();
+
+      // Draw drones (in geometric pattern around the adversary)
+      ctx.fillStyle = '#FFD700'; // Bright yellow color for drones
+      drones.forEach((drone) => {
+        ctx.fillRect(drone.x, drone.y, DRONE_SIZE, DRONE_SIZE); // Smaller drones
+      });
+    }
+
+    // Animation loop
+    function animate() {
+      tick();
+      draw();
+      requestAnimationFrame(animate);
+    }
+
+    animate(); // Start the animation loop
+
+    // Track frame rate
+    let lastFrameTime = Date.now();
+    setInterval(function() {
+      const now = Date.now();
+      const deltaTime = now - lastFrameTime;
+      lastFrameTime = now;
+      const fps = 1000 / deltaTime;
+      updateFPS(fps);
+    }, 1000 / 60); // Updates roughly every second
+  </script>
+</body>
+</html>
