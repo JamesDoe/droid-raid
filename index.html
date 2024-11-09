@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -11,19 +12,21 @@
       overflow: hidden;
       background-color: #fff1eb;
     }
+
     .info {
       font-family: sans-serif;
       color: #543D5E;
     }
   </style>
 </head>
+
 <body>
-  <h1>DROID-RAID Proof of Concept v1.2</h1>
+  <h1>DROID-RAID Proof of Concept v1.3</h1>
   <div class="info">
     <p>FPS: <span data-fps>60</span></p>
     <p>Drone Count: <span data-count>10</span></p>
   </div>
-  
+
   <canvas id="swarmCanvas"></canvas>
 
   <script>
@@ -36,6 +39,8 @@
     const MIN_SCALE = 0.5; // Min scale when moving to avoid collisions
     const CORRECTIVE_FORCE_SCALE = 0.05; // Corrective force
     const DAMPING_FACTOR = 0.95; // Damping factor to reduce oscillation
+    const REPULSIVE_FORCE_SCALE = 0.1; // Scale of repulsive force
+    const MIN_DISTANCE = 30; // Minimum distance before repulsive force kicks in
     const canvas = document.getElementById('swarmCanvas');
     const ctx = canvas.getContext('2d');
 
@@ -107,7 +112,7 @@
     let fpsCounter = 60;
     let frameText = document.querySelector('[data-fps]');
     let countText = document.querySelector('[data-count]');
-    
+
     function updateFPS(rate) {
       fpsCounter = rate;
       frameText.textContent = Math.round(rate);
@@ -182,41 +187,40 @@
         const targetX = target.x;
         const targetY = target.y;
 
-        // Avoid collisions with other drones and the adversary
-        let collisionDetected = false;
+        // Calculate repulsive forces from other drones and the adversary
+        let forceX = 0;
+        let forceY = 0;
 
-        // Check for collisions with the adversary
+        // Repulsion from adversary
         const distanceToAdversary = Math.hypot(drone.x - threat[0], drone.y - threat[1]);
-        if (distanceToAdversary < COLLISION_DISTANCE) {
-          collisionDetected = true;
+        if (distanceToAdversary < MIN_DISTANCE) {
+          const repulsion = REPULSIVE_FORCE_SCALE / Math.pow(distanceToAdversary, 2); // Inverse-square law for repulsion
+          forceX += repulsion * (drone.x - threat[0]) / distanceToAdversary;
+          forceY += repulsion * (drone.y - threat[1]) / distanceToAdversary;
         }
 
-        // Check for collisions with other drones
+        // Repulsion from other drones
         drones.forEach((otherDrone, j) => {
           if (i !== j) {
             const distanceToDrone = Math.hypot(drone.x - otherDrone.x, drone.y - otherDrone.y);
-            if (distanceToDrone < COLLISION_DISTANCE) {
-              collisionDetected = true;
+            if (distanceToDrone < MIN_DISTANCE) {
+              const repulsion = REPULSIVE_FORCE_SCALE / Math.pow(distanceToDrone, 2);
+              forceX += repulsion * (drone.x - otherDrone.x) / distanceToDrone;
+              forceY += repulsion * (drone.y - otherDrone.y) / distanceToDrone;
             }
           }
         });
 
-        // Move up in z-direction (shrink) if collision is detected, otherwise move back to original scale
-        if (collisionDetected) {
-          drone.scale = Math.max(MIN_SCALE, drone.scale - 0.05); // Shrink the drone to avoid collision
-        } else {
-          drone.scale = Math.min(1.0, drone.scale + 0.02); // Return to normal size
-        }
-
-        // Apply corrective force to maintain formation
-        drone.vx += (targetX - drone.x) * drone.correctiveForce / drone.mass;
-        drone.vy += (targetY - drone.y) * drone.correctiveForce / drone.mass;
+        // Move drone slightly toward the minima using gradient descent
+        // Adjust velocity to move towards the target position while balancing repulsive forces
+        drone.vx += ((targetX - drone.x) * drone.correctiveForce + forceX) / drone.mass;
+        drone.vy += ((targetY - drone.y) * drone.correctiveForce + forceY) / drone.mass;
 
         // Update position
         drone.x += drone.vx;
         drone.y += drone.vy;
 
-        // Apply stronger damping (drag) to reduce velocity and prevent overshoot
+        // Apply damping to reduce oscillations
         drone.vx *= DAMPING_FACTOR;
         drone.vy *= DAMPING_FACTOR;
       });
@@ -256,7 +260,7 @@
 
     // Track frame rate
     let lastFrameTime = Date.now();
-    setInterval(function() {
+    setInterval(function () {
       const now = Date.now();
       const deltaTime = now - lastFrameTime;
       lastFrameTime = now;
@@ -265,4 +269,5 @@
     }, 1000 / 60); // Updates roughly every second
   </script>
 </body>
+
 </html>
