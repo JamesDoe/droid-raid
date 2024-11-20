@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DROID-RAID POC: Boids with Leader</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #000;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        /* Existing styles */
+
+        #controlPanel {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            max-width: 250px;
+            background: rgba(255, 255, 255, 0.8);
+            padding: 0;
+            border-radius: 8px;
+            z-index: 10;
+            font-family: Arial, sans-serif;
+            color: #000;
+        }
+
+        #controlPanel summary {
+            list-style: none;
+            padding: 10px;
+            cursor: pointer;
+            font-weight: bold;
+            background-color: #f0f0f0;
+            margin: 0;
+            border-radius: 8px;
+        }
+
+        #controlPanel summary::-webkit-details-marker {
+            display: none;
+        }
+
+        #controlPanel summary::after {
+            content: '▼';
+            float: right;
+            font-size: 12px;
+        }
+
+        #controlPanel[open] summary::after {
+            content: '▲';
+        }
+
+        #controlPanel>* {
+            padding: 10px;
+        }
+
+        #controlPanel label {
+            display: block;
+            margin-top: 10px;
+        }
+
+        #controlPanel input[type="range"] {
+            width: 100%;
+        }
+
+        #title {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            color: white;
+            font-family: Arial, sans-serif;
+            font-size: 18px;
+            font-weight: bold;
+            z-index: 15;
+            /* Ensure it appears above other elements */
+            background-color: rgba(0, 0, 0, 0.5);
+            /* Optional: Semi-transparent background for readability */
+            padding: 5px 10px;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="swarmCanvas"></canvas>
+    <div id="title">DROID-RAID Proof of Concept v2.01</div>
+    <details id="controlPanel">
+        <summary>Boid Parameters</summary>
+        <label>
+            Separation Weight: <span id="separationValue">1.5</span>
+            <input type="range" id="separationSlider" min="0" max="5" step="0.1" value="1.5">
+        </label>
+        <label>
+            Alignment Weight: <span id="alignmentValue">1.0</span>
+            <input type="range" id="alignmentSlider" min="0" max="5" step="0.1" value="1.0">
+        </label>
+        <label>
+            Cohesion Weight: <span id="cohesionValue">1.0</span>
+            <input type="range" id="cohesionSlider" min="0" max="5" step="0.1" value="1.0">
+        </label>
+        <label>
+            Perception Radius: <span id="perceptionValue">50</span>
+            <input type="range" id="perceptionSlider" min="10" max="200" step="1" value="50">
+        </label>
+        <label>
+            Wall Avoidance: <span id="wallAvoidanceValue">50</span>
+            <input type="range" id="wallAvoidanceSlider" min="10" max="200" step="1" value="50">
+        </label>
+        <label>
+            Maximum Speed: <span id="maxSpeedValue">4</span>
+            <input type="range" id="maxSpeedSlider" min="1" max="10" step="0.1" value="4">
+        </label>
+        <label>
+            Maximum Force: <span id="maxForceValue">0.1</span>
+            <input type="range" id="maxForceSlider" min="0.01" max="2" step="0.01" value="0.1">
+        </label>
+        <label>
+            <input type="checkbox" id="showPerceptionCheckbox" checked>
+            Show Perception Radius
+        </label>
+        <label>
+            <input type="checkbox" id="followTheLeaderCheckbox" checked>
+            Follow The Leader
+        </label>
+    </details>
+    <script>
+
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+
+            // Update canvas dimensions in each boid
+            boids.forEach(boid => {
+                boid.canvasWidth = canvas.width;
+                boid.canvasHeight = canvas.height;
+            });
+        });
+
+        // Get references to the sliders and value displays
+        const separationSlider = document.getElementById('separationSlider');
+        const alignmentSlider = document.getElementById('alignmentSlider');
+        const cohesionSlider = document.getElementById('cohesionSlider');
+        const perceptionSlider = document.getElementById('perceptionSlider');
+        const maxSpeedSlider = document.getElementById('maxSpeedSlider');
+        const maxForceSlider = document.getElementById('maxForceSlider');
+        const wallAvoidanceSlider = document.getElementById('wallAvoidanceSlider')
+
+        const separationValue = document.getElementById('separationValue');
+        const alignmentValue = document.getElementById('alignmentValue');
+        const cohesionValue = document.getElementById('cohesionValue');
+        const perceptionValue = document.getElementById('perceptionValue');
+        const maxSpeedValue = document.getElementById('maxSpeedValue');
+        const maxForceValue = document.getElementById('maxForceValue');
+        const wallAvoidanceValue = document.getElementById('wallAvoidanceValue');
+
+        class Boid {
+            constructor(x, y, canvasWidth, canvasHeight) {
+                this.color = "green"; // color
+                this.position = { x, y }; // Boid's current position
+                this.velocity = { x: Math.random() * 2 - 1, y: Math.random() * 2 - 1 }; // Random initial velocity
+                this.acceleration = { x: 0, y: 0 }; // Acceleration vector
+                this.perceptionRadius = 50; // Radius to detect neighbors
+                this.maxSpeed = 4; // Maximum speed
+                this.maxForce = 0.1; // Maximum steering force
+                this.canvasWidth = canvasWidth;
+                this.canvasHeight = canvasHeight;
+            }
+
+            // Add a force to the boid's acceleration
+            applyForce(force) {
+                this.acceleration.x += force.x;
+                this.acceleration.y += force.y;
+            }
+
+            separation(boids) {
+                const desiredSeparation = 25.0; // Minimum desired separation between boids
+                const steer = { x: 0, y: 0 };
+                let total = 0;
+
+                boids.forEach(other => {
+                    const dx = this.position.x - other.position.x;
+                    const dy = this.position.y - other.position.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+
+                    if (other !== this && distance > 0 && distance < desiredSeparation) {
+                        // Calculate vector pointing away from neighbor, weighted by distance
+                        const diff = {
+                            x: dx / (distance * distance),
+                            y: dy / (distance * distance)
+                        };
+                        steer.x += diff.x;
+                        steer.y += diff.y;
+                        total++;
+                    }
+                });
+
+                if (total > 0) {
+                    // Average the steering force
+                    steer.x /= total;
+                    steer.y /= total;
+
+                    // Normalize and scale to maxForce
+                    const magnitude = Math.sqrt(steer.x * steer.x + steer.y * steer.y);
+                    if (magnitude > 0) {
+                        steer.x = (steer.x / magnitude) * this.maxForce;
+                        steer.y = (steer.y / magnitude) * this.maxForce;
+                    }
+                }
+
+                return steer;
+            }
+
+
+            alignment(boids) {
+                const steer = { x: 0, y: 0 };
+                let total = 0;
+
+                boids.forEach(other => {
+                    const distance = Math.sqrt(
+                        (this.position.x - other.position.x) ** 2 +
+                        (this.position.y - other.position.y) ** 2
+                    );
+
+                    if (other !== this && distance < this.perceptionRadius) {
+                        steer.x += other.velocity.x;
+                        steer.y += other.velocity.y;
+                        total++;
+                    }
+                });
+
+                if (total > 0) {
+                    steer.x /= total;
+                    steer.y /= total;
+
+                    // Normalize and scale to maxForce
+                    const magnitude = Math.sqrt(steer.x ** 2 + steer.y ** 2);
+                    if (magnitude > 0) {
+                        steer.x = (steer.x / magnitude) * this.maxForce;
+                        steer.y = (steer.y / magnitude) * this.maxForce;
+                    }
+                }
+
+                return steer;
+            }
+
+            cohesion(boids) {
+                const steer = { x: 0, y: 0 };
+                let total = 0;
+
+                boids.forEach(other => {
+                    const distance = Math.sqrt(
+                        (this.position.x - other.position.x) ** 2 +
+                        (this.position.y - other.position.y) ** 2
+                    );
+
+                    if (other !== this && distance < this.perceptionRadius) {
+                        steer.x += other.position.x;
+                        steer.y += other.position.y;
+                        total++;
+                    }
+                });
+
+                if (total > 0) {
+                    steer.x /= total;
+                    steer.y /= total;
+
+                    // Steer toward the average position
+                    steer.x = steer.x - this.position.x;
+                    steer.y = steer.y - this.position.y;
+
+                    // Normalize and scale to maxForce
+                    const magnitude = Math.sqrt(steer.x ** 2 + steer.y ** 2);
+                    if (magnitude > 0) {
+                        steer.x = (steer.x / magnitude) * this.maxForce;
+                        steer.y = (steer.y / magnitude) * this.maxForce;
+                    }
+                }
+
+                return steer;
+            }
+
+            flock(boids) {
+                const separationForce = this.separation(boids);
+                const alignmentForce = this.alignment(boids);
+                const cohesionForce = this.cohesion(boids);
+                const wallAvoidanceForce = this.avoidWalls();
+                const followForce = this.followLeader(leader);
+
+                // Get weights from sliders
+                const separationWeight = parseFloat(separationSlider.value);
+                const alignmentWeight = parseFloat(alignmentSlider.value);
+                const cohesionWeight = parseFloat(cohesionSlider.value);
+                const wallAvoidanceWeight = parseFloat(wallAvoidanceSlider.value);
+                const followForceWeight = 1.0;
+
+                // Apply weighted forces
+                this.applyForce({
+                    x: separationForce.x * separationWeight,
+                    y: separationForce.y * separationWeight
+                });
+
+                this.applyForce({
+                    x: alignmentForce.x * alignmentWeight,
+                    y: alignmentForce.y * alignmentWeight
+                });
+
+                this.applyForce({
+                    x: cohesionForce.x * cohesionWeight,
+                    y: cohesionForce.y * cohesionWeight
+                });
+
+                this.applyForce({
+                    x: wallAvoidanceForce.x * wallAvoidanceWeight,
+                    y: wallAvoidanceForce.y * wallAvoidanceWeight
+                });
+
+                if (followTheLeaderCheckbox.checked && !this.isLeader) {
+                    this.applyForce({
+                        x: followForce.x * followForceWeight,
+                        y: followForce.y * followForceWeight
+                    });
+                }
+
+            }
+
+            avoidWalls() {
+                const repulsionRadius = 50; // Distance at which walls start repelling boids
+                const repulsionStrength = this.maxForce; // Use maxForce for scaling
+                let force = { x: 0, y: 0 };
+
+                // Left Wall
+                if (this.position.x < repulsionRadius) {
+                    force.x += (repulsionRadius - this.position.x) / repulsionRadius * repulsionStrength;
+                }
+
+                // Right Wall
+                if (this.position.x > this.canvasWidth - repulsionRadius) {
+                    force.x -= (this.position.x - (this.canvasWidth - repulsionRadius)) / repulsionRadius * repulsionStrength;
+                }
+
+                // Top Wall
+                if (this.position.y < repulsionRadius) {
+                    force.y += (repulsionRadius - this.position.y) / repulsionRadius * repulsionStrength;
+                }
+
+                // Bottom Wall
+                if (this.position.y > this.canvasHeight - repulsionRadius) {
+                    force.y -= (this.position.y - (this.canvasHeight - repulsionRadius)) / repulsionRadius * repulsionStrength;
+                }
+
+                return force;
+            }
+
+            followLeader(leader) {
+                const desiredSeparation = 50; // Adjust as needed
+                const steer = {
+                    x: leader.position.x - this.position.x,
+                    y: leader.position.y - this.position.y
+                };
+
+                const distance = Math.sqrt(steer.x ** 2 + steer.y ** 2);
+
+                if (distance < desiredSeparation) {
+                    // If too close, create a repulsive force
+                    steer.x = -steer.x;
+                    steer.y = -steer.y;
+                }
+
+                // Normalize and scale to maxForce
+                const magnitude = Math.sqrt(steer.x ** 2 + steer.y ** 2);
+                if (magnitude > 0) {
+                    steer.x = (steer.x / magnitude) * this.maxForce;
+                    steer.y = (steer.y / magnitude) * this.maxForce;
+                }
+
+                return steer;
+            }
+
+
+            // Update position and velocity
+            update() {
+
+                // Update perceptionRadius, maxSpeed, maxForce from sliders
+                this.perceptionRadius = parseFloat(perceptionSlider.value);
+                this.maxSpeed = parseFloat(maxSpeedSlider.value);
+                this.maxForce = parseFloat(maxForceSlider.value);
+                this.velocity.x += this.acceleration.x;
+                this.velocity.y += this.acceleration.y;
+
+                // Limit the velocity to the maximum speed
+                const speed = Math.sqrt(this.velocity.x ** 2 + this.velocity.y ** 2);
+                if (speed > this.maxSpeed) {
+                    this.velocity.x = (this.velocity.x / speed) * this.maxSpeed;
+                    this.velocity.y = (this.velocity.y / speed) * this.maxSpeed;
+                }
+
+                this.position.x += this.velocity.x;
+                this.position.y += this.velocity.y;
+
+                // Reset acceleration after each update
+                this.acceleration.x = 0;
+                this.acceleration.y = 0;
+            }
+
+        }
+
+        class Leader extends Boid {
+            constructor(x, y, canvasWidth, canvasHeight, color) {
+                super(x, y, canvasWidth, canvasHeight, color);
+                this.color = "blue";
+                this.isLeader = true; // You can use true/false instead of 1/0
+            }
+        }
+
+        const canvas = document.getElementById('swarmCanvas');
+        const context = canvas.getContext('2d');
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        const canvasWidth = canvas.width;
+        const canvasHeight = canvas.height;
+        const leader = new Leader(Math.random() * canvasWidth, Math.random() * canvasHeight, canvasWidth, canvasHeight);
+
+        const boids = [leader];
+
+        // Initialize 9 more boids
+        for (let i = 0; i < 9; i++) {
+            boids.push(new Boid(Math.random() * canvasWidth, Math.random() * canvasHeight, canvasWidth, canvasHeight));
+        }
+
+        const showPerceptionCheckbox = document.getElementById('showPerceptionCheckbox');
+        const followTheLeaderCheckbox = document.getElementById('followTheLeaderCheckbox');
+
+        // Update displayed slider values
+        function updateSliderValues() {
+            separationValue.textContent = separationSlider.value;
+            alignmentValue.textContent = alignmentSlider.value;
+            cohesionValue.textContent = cohesionSlider.value;
+            perceptionValue.textContent = perceptionSlider.value;
+            maxSpeedValue.textContent = maxSpeedSlider.value;
+            maxForceValue.textContent = maxForceSlider.value;
+            wallAvoidanceValue.textContent = wallAvoidanceSlider.value;
+        }
+
+        // Add event listeners to sliders
+        separationSlider.addEventListener('input', updateSliderValues);
+        alignmentSlider.addEventListener('input', updateSliderValues);
+        cohesionSlider.addEventListener('input', updateSliderValues);
+        perceptionSlider.addEventListener('input', updateSliderValues);
+        maxSpeedSlider.addEventListener('input', updateSliderValues);
+        maxForceSlider.addEventListener('input', updateSliderValues);
+        wallAvoidanceSlider.addEventListener('input', updateSliderValues);
+
+        // Initial update of slider values
+        updateSliderValues();
+
+
+        // Animation loop
+        function animate() {
+            context.clearRect(0, 0, canvas.width, canvas.height);
+
+            boids.forEach(boid => {
+                boid.flock(boids); // Apply flocking behaviors
+                boid.update();     // Update position and velocity
+
+                // Draw the boid
+                context.beginPath();
+                context.fillStyle = boid.color;
+                context.arc(boid.position.x, boid.position.y, 3, 0, Math.PI * 2);
+                context.fill();
+
+                // Draw perception radius if checkbox is checked
+                if (showPerceptionCheckbox.checked) {
+                    context.beginPath();
+                    context.strokeStyle = 'rgba(255, 255, 255, 0.5)'; // Semi-transparent white
+                    context.lineWidth = 1;
+                    context.setLineDash([5, 5]); // Dotted line: 5px dash, 5px gap
+                    context.arc(boid.position.x, boid.position.y, boid.perceptionRadius, 0, Math.PI * 2);
+                    context.stroke();
+                    context.setLineDash([]); // Reset line dash
+                }
+            });
+
+            requestAnimationFrame(animate);
+        }
+
+
+        animate();
+
+    </script>
+</body>
+
+</html>
