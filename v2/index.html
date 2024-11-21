@@ -89,7 +89,7 @@
 
 <body>
     <canvas id="swarmCanvas"></canvas>
-    <div id="title">DROID-RAID Proof of Concept v2.1</div>
+    <div id="title">DROID-RAID Proof of Concept v2.12</div>
     <details id="controlPanel">
         <summary>Boid Parameters</summary>
         <label>
@@ -101,8 +101,8 @@
             <input type="range" id="alignmentSlider" min="0" max="5" step="0.1" value="1.0">
         </label>
         <label>
-            Cohesion Weight: <span id="cohesionValue">2.0</span>
-            <input type="range" id="cohesionSlider" min="0" max="2" step="0.1" value="2.0">
+            Cohesion Weight: <span id="cohesionValue">1.0</span>
+            <input type="range" id="cohesionSlider" min="0" max="2" step="0.1" value="1.0">
         </label>
         <label>
             Perception Radius: <span id="perceptionValue">50</span>
@@ -132,8 +132,19 @@
             <input type="checkbox" id="followTheLeaderCheckbox" checked>
             Follow The Leader
         </label>
+        <label>
+            <input onChange="if(!this.checked)formation2Checkbox.checked=false" type="checkbox" id="formation1Checkbox">
+            Maintain Formation
+        </label>
+        <label>
+            <input type="checkbox" id="formation2Checkbox">
+            Circular Formation
+        </label>
     </details>
     <script>
+        function handleChecked(e) {
+            console.log()
+        }
 
         window.addEventListener('resize', () => {
             canvas.width = window.innerWidth;
@@ -365,27 +376,30 @@
                 const cohesionWeight = parseFloat(cohesionSlider.value) * (1 - Math.min(localRisk / 10, 0.8));
 
                 const separationForce = this.separation(agents);
-                const alignmentForce = this.alignment(agents);
-                const cohesionForce = this.cohesion(agents);
-                const obstacleAvoidanceForce = this.avoidObstacles(obstacles);
 
+                const obstacleAvoidanceForce = this.avoidObstacles(obstacles);
                 const wallAvoidanceForce = this.avoidWalls();
-                const followForce = this.followLeader(leader);
 
                 this.applyForce({
                     x: separationForce.x * parseFloat(separationSlider.value),
                     y: separationForce.y * parseFloat(separationSlider.value)
                 });
 
-                this.applyForce({
-                    x: alignmentForce.x * alignmentWeight,
-                    y: alignmentForce.y * alignmentWeight
-                });
+                if (followTheLeaderCheckbox.checked && this.isLeader && !formation2Checkbox.checked) {
 
-                this.applyForce({
-                    x: cohesionForce.x * cohesionWeight,
-                    y: cohesionForce.y * cohesionWeight
-                });
+                } else {
+                    const alignmentForce = this.alignment(agents);
+                    const cohesionForce = this.cohesion(agents);
+                    this.applyForce({
+                        x: alignmentForce.x * alignmentWeight,
+                        y: alignmentForce.y * alignmentWeight
+                    });
+
+                    this.applyForce({
+                        x: cohesionForce.x * cohesionWeight,
+                        y: cohesionForce.y * cohesionWeight
+                    });
+                }
 
                 this.applyForce({
                     x: obstacleAvoidanceForce.x * parseFloat(obstacleAvoidanceSlider.value),
@@ -400,12 +414,121 @@
                 if (followTheLeaderCheckbox.checked && !this.isLeader) {
                     const dx = leader.position.x - this.position.x;
                     const dy = leader.position.y - this.position.y;
-                    this.orientation = Math.atan2(dy, dx); // Angle pointing toward the leader
-                    this.applyForce({
-                        x: followForce.x * followForceWeight,
-                        y: followForce.y * followForceWeight
-                    });
-                };
+
+                    if (formation1Checkbox.checked) {
+                        if (formation2Checkbox.checked) {
+                            const radius = 50; // Desired radius of the circle around the leader
+                            const angleStep = (2 * Math.PI) / (boids.length - 1); // Angle step for even spacing
+
+                            // Calculate all target positions on the circle
+                            const targetPositions = [];
+                            for (let i = 0; i < boids.length - 1; i++) {
+                                const angle = angleStep * i;
+                                targetPositions.push({
+                                    x: leader.position.x + Math.cos(angle) * radius,
+                                    y: leader.position.y + Math.sin(angle) * radius,
+                                });
+                            }
+
+                            // Find the closest target position to this boid
+                            let closestTargetIndex = -1;
+                            let closestDistance = Infinity;
+                            targetPositions.forEach((target, index) => {
+                                const dx = target.x - this.position.x;
+                                const dy = target.y - this.position.y;
+                                const distance = Math.sqrt(dx ** 2 + dy ** 2);
+
+                                if (distance < closestDistance) {
+                                    closestDistance = distance;
+                                    closestTargetIndex = index;
+                                }
+                            });
+
+                            // Assign this boid to the closest target and mark it as taken
+                            const target = targetPositions[closestTargetIndex];
+
+                            // Compute steering force to move toward the closest target position
+                            const steer = {
+                                x: target.x - this.position.x,
+                                y: target.y - this.position.y,
+                            };
+
+                            // Normalize and scale the steering force
+                            const magnitude = Math.sqrt(steer.x ** 2 + steer.y ** 2);
+                            if (magnitude > 0) {
+                                steer.x = (steer.x / magnitude) * this.maxForce;
+                                steer.y = (steer.y / magnitude) * this.maxForce;
+                            }
+
+                            this.applyForce(steer);
+                        } else {
+                            // Compute angle between the boid and the leader's path
+                            const angleToLeader = Math.atan2(dy, dx);
+                            const angleDifference = Math.atan2(
+                                Math.sin(angleToLeader - leader.orientation),
+                                Math.cos(angleToLeader - leader.orientation)
+                            );
+
+                            // If the boid is ahead of the leader's orientation, force it to move behind
+                            const leaderPathThreshold = Math.PI / 3; // 30 degrees tolerance
+                            if (Math.abs(angleDifference) < leaderPathThreshold) {
+                                // Push the boid behind the leader
+                                const behindOffset = 50; // Distance to stay behind
+                                const behindTargetX = leader.position.x - Math.cos(leader.orientation) * behindOffset;
+                                const behindTargetY = leader.position.y - Math.sin(leader.orientation) * behindOffset;
+
+                                const steerToBehind = {
+                                    x: behindTargetX - this.position.x,
+                                    y: behindTargetY - this.position.y,
+                                };
+
+                                const magnitude = Math.sqrt(steerToBehind.x ** 2 + steerToBehind.y ** 2);
+                                if (magnitude > 0) {
+                                    steerToBehind.x = (steerToBehind.x / magnitude) * this.maxForce;
+                                    steerToBehind.y = (steerToBehind.y / magnitude) * this.maxForce;
+                                }
+
+                                this.applyForce(steerToBehind);
+                            } else {
+                                // Calculate trailing position based on index or distance
+                                const leaderOffset = 50; // Distance behind the leader
+                                const angleSpread = Math.PI / 6; // Spread angle for trailing boids
+                                const index = boids.indexOf(this);
+
+                                // Calculate desired trailing position
+                                const desiredAngle = leader.orientation + (index % 2 === 0 ? -1 : 1) * angleSpread * Math.floor(index / 2);
+                                const targetX = leader.position.x - Math.cos(desiredAngle) * leaderOffset * (index + 1);
+                                const targetY = leader.position.y - Math.sin(desiredAngle) * leaderOffset * (index + 1);
+
+                                // Calculate force toward trailing position
+                                const steer = {
+                                    x: targetX - this.position.x,
+                                    y: targetY - this.position.y,
+                                };
+
+                                const magnitude = Math.sqrt(steer.x ** 2 + steer.y ** 2);
+                                if (magnitude > 0) {
+                                    steer.x = (steer.x / magnitude) * this.maxForce;
+                                    steer.y = (steer.y / magnitude) * this.maxForce;
+                                }
+
+                                this.applyForce({
+                                    x: steer.x * followForceWeight,
+                                    y: steer.y * followForceWeight
+                                });
+                            }
+                        }
+                    } else {
+                        // Regular follow-the-leader behavior
+                        const followForce = this.followLeader(leader);
+
+                        this.orientation = Math.atan2(dy, dx); // Angle pointing toward the leader
+                        this.applyForce({
+                            x: followForce.x * followForceWeight,
+                            y: followForce.y * followForceWeight
+                        });
+                    }
+                }
             }
 
             avoidWalls() {
@@ -622,6 +745,8 @@
 
         const showPerceptionCheckbox = document.getElementById('showPerceptionCheckbox');
         const followTheLeaderCheckbox = document.getElementById('followTheLeaderCheckbox');
+        const formation1Checkbox = document.getElementById('formation1Checkbox');
+        const formation2Checkbox = document.getElementById('formation2Checkbox');
 
         // Update displayed slider values
         function updateSliderValues() {
