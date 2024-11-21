@@ -89,7 +89,7 @@
 
 <body>
     <canvas id="swarmCanvas"></canvas>
-    <div id="title">DROID-RAID Proof of Concept v2.01</div>
+    <div id="title">DROID-RAID Proof of Concept v2.1</div>
     <details id="controlPanel">
         <summary>Boid Parameters</summary>
         <label>
@@ -101,24 +101,28 @@
             <input type="range" id="alignmentSlider" min="0" max="5" step="0.1" value="1.0">
         </label>
         <label>
-            Cohesion Weight: <span id="cohesionValue">1.0</span>
-            <input type="range" id="cohesionSlider" min="0" max="5" step="0.1" value="1.0">
+            Cohesion Weight: <span id="cohesionValue">2.0</span>
+            <input type="range" id="cohesionSlider" min="0" max="2" step="0.1" value="2.0">
         </label>
         <label>
             Perception Radius: <span id="perceptionValue">50</span>
             <input type="range" id="perceptionSlider" min="10" max="200" step="1" value="50">
         </label>
         <label>
-            Wall Avoidance: <span id="wallAvoidanceValue">50</span>
-            <input type="range" id="wallAvoidanceSlider" min="10" max="200" step="1" value="50">
+            Wall Avoidance Weight: <span id="wallAvoidanceValue">10.0</span>
+            <input type="range" id="wallAvoidanceSlider" min="0.1" max="10" step="0.1" value="10.0">
+        </label>
+        <label>
+            Obstacle Avoidance Weight: <span id="obstacleAvoidanceValue">10.0</span>
+            <input type="range" id="obstacleAvoidanceSlider" min="0.1" max="10" step="0.1" value="10.0">
         </label>
         <label>
             Maximum Speed: <span id="maxSpeedValue">4</span>
             <input type="range" id="maxSpeedSlider" min="1" max="10" step="0.1" value="4">
         </label>
         <label>
-            Maximum Force: <span id="maxForceValue">0.1</span>
-            <input type="range" id="maxForceSlider" min="0.01" max="2" step="0.01" value="0.1">
+            Maximum Force: <span id="maxForceValue">0.2</span>
+            <input type="range" id="maxForceSlider" min="0.01" max="2" step="0.01" value="0.2">
         </label>
         <label>
             <input type="checkbox" id="showPerceptionCheckbox" checked>
@@ -149,7 +153,8 @@
         const perceptionSlider = document.getElementById('perceptionSlider');
         const maxSpeedSlider = document.getElementById('maxSpeedSlider');
         const maxForceSlider = document.getElementById('maxForceSlider');
-        const wallAvoidanceSlider = document.getElementById('wallAvoidanceSlider')
+        const wallAvoidanceSlider = document.getElementById('wallAvoidanceSlider');
+        const obstacleAvoidanceSlider = document.getElementById('obstacleAvoidanceSlider');
 
         const separationValue = document.getElementById('separationValue');
         const alignmentValue = document.getElementById('alignmentValue');
@@ -158,6 +163,7 @@
         const maxSpeedValue = document.getElementById('maxSpeedValue');
         const maxForceValue = document.getElementById('maxForceValue');
         const wallAvoidanceValue = document.getElementById('wallAvoidanceValue');
+        const obstacleAvoidanceValue = document.getElementById('obstacleAvoidanceValue');
 
         class Boid {
             constructor(x, y, canvasWidth, canvasHeight) {
@@ -165,7 +171,9 @@
                 this.position = { x, y }; // Boid's current position
                 this.velocity = { x: Math.random() * 2 - 1, y: Math.random() * 2 - 1 }; // Random initial velocity
                 this.acceleration = { x: 0, y: 0 }; // Acceleration vector
+                this.orientation = Math.atan2(this.velocity.y, this.velocity.x); // Initial orientation
                 this.perceptionRadius = 50; // Radius to detect neighbors
+                this.perceptionBufferFactor = 1.0618;
                 this.maxSpeed = 4; // Maximum speed
                 this.maxForce = 0.1; // Maximum steering force
                 this.canvasWidth = canvasWidth;
@@ -230,6 +238,8 @@
                     if (other !== this && distance < this.perceptionRadius) {
                         steer.x += other.velocity.x;
                         steer.y += other.velocity.y;
+                        steer.x += Math.cos(other.orientation); // Use neighbor's orientation
+                        steer.y += Math.sin(other.orientation);
                         total++;
                     }
                 });
@@ -285,24 +295,86 @@
                 return steer;
             }
 
-            flock(boids) {
-                const separationForce = this.separation(boids);
-                const alignmentForce = this.alignment(boids);
-                const cohesionForce = this.cohesion(boids);
-                const wallAvoidanceForce = this.avoidWalls();
-                const followForce = this.followLeader(leader);
+            avoidObstacles(obstacles) {
+                const steer = { x: 0, y: 0 };
+                let imminentCollision = false;
+
+                obstacles.forEach(obstacle => {
+                    const dx = this.position.x - obstacle.x;
+                    const dy = this.position.y - obstacle.y;
+                    const distance = Math.sqrt(dx ** 2 + dy ** 2);
+
+                    if (distance < (this.perceptionRadius * this.perceptionBufferFactor)) {
+                        // Compute Gaussian influence
+                        const influence = obstacle.amplitude * Math.exp(-((distance ** 2) / (2 * obstacle.sigma ** 2)));
+
+                        // Define critical threshold
+                        const criticalThreshold = 0.38 * obstacle.amplitude;
+
+                        if (influence > criticalThreshold) {
+                            // Imminent collision detected
+                            imminentCollision = true;
+
+                            // Apply hard repulsion
+                            steer.x += (dx / distance) * this.maxForce * 8;
+                            steer.y += (dy / distance) * this.maxForce * 8;
+                        } else {
+                            // Scale smooth Gaussian avoidance force by local risk
+                            const localRisk = this.calculateLocalRisk([], obstacles).risk;
+                            steer.x += ((1 + localRisk) * influence) * (dx / distance);
+                            steer.y += ((1 + localRisk) * influence) * (dy / distance);
+                        }
+                    }
+                });
+
+                // Normalize and scale to maxForce
+                const magnitude = Math.sqrt(steer.x ** 2 + steer.y ** 2);
+                if (magnitude > 0) {
+                    steer.x = (steer.x / magnitude) * this.maxForce;
+                    steer.y = (steer.y / magnitude) * this.maxForce;
+                }
+
+                // Apply velocity scaling if imminent collision
+                if (imminentCollision) {
+                    const influence = Math.max(0, steer.x ** 2 + steer.y ** 2);
+                    const criticalThreshold = 0.5 * Math.max(...obstacles.map(o => o.amplitude));
+                    const scalingFactor = 1 - Math.min(1, influence / criticalThreshold);
+
+                    // Scale velocity and acceleration
+                    this.velocity.x *= scalingFactor;
+                    this.velocity.y *= scalingFactor;
+                    this.acceleration.x *= scalingFactor;
+                    this.acceleration.y *= scalingFactor;
+                }
+
+                return steer;
+            }
+
+            flock(agents, obstacles) {
+                const localRiskData = this.calculateLocalRisk(agents, obstacles);
+                const localRisk = localRiskData.risk;
 
                 // Get weights from sliders
                 const separationWeight = parseFloat(separationSlider.value);
-                const alignmentWeight = parseFloat(alignmentSlider.value);
-                const cohesionWeight = parseFloat(cohesionSlider.value);
                 const wallAvoidanceWeight = parseFloat(wallAvoidanceSlider.value);
+                const obstacleAvoidanceWeight = parseFloat(obstacleAvoidanceSlider.value);
                 const followForceWeight = 1.0;
 
-                // Apply weighted forces
+                // Decrease alignment and cohesion weights in high-risk areas
+                const alignmentWeight = parseFloat(alignmentSlider.value) * (1 - Math.min(localRisk / 10, 0.8));
+                const cohesionWeight = parseFloat(cohesionSlider.value) * (1 - Math.min(localRisk / 10, 0.8));
+
+                const separationForce = this.separation(agents);
+                const alignmentForce = this.alignment(agents);
+                const cohesionForce = this.cohesion(agents);
+                const obstacleAvoidanceForce = this.avoidObstacles(obstacles);
+
+                const wallAvoidanceForce = this.avoidWalls();
+                const followForce = this.followLeader(leader);
+
                 this.applyForce({
-                    x: separationForce.x * separationWeight,
-                    y: separationForce.y * separationWeight
+                    x: separationForce.x * parseFloat(separationSlider.value),
+                    y: separationForce.y * parseFloat(separationSlider.value)
                 });
 
                 this.applyForce({
@@ -316,17 +388,24 @@
                 });
 
                 this.applyForce({
+                    x: obstacleAvoidanceForce.x * parseFloat(obstacleAvoidanceSlider.value),
+                    y: obstacleAvoidanceForce.y * parseFloat(obstacleAvoidanceSlider.value)
+                });
+
+                this.applyForce({
                     x: wallAvoidanceForce.x * wallAvoidanceWeight,
                     y: wallAvoidanceForce.y * wallAvoidanceWeight
                 });
 
                 if (followTheLeaderCheckbox.checked && !this.isLeader) {
+                    const dx = leader.position.x - this.position.x;
+                    const dy = leader.position.y - this.position.y;
+                    this.orientation = Math.atan2(dy, dx); // Angle pointing toward the leader
                     this.applyForce({
                         x: followForce.x * followForceWeight,
                         y: followForce.y * followForceWeight
                     });
-                }
-
+                };
             }
 
             avoidWalls() {
@@ -403,10 +482,97 @@
                 this.position.x += this.velocity.x;
                 this.position.y += this.velocity.y;
 
+                // Update orientation based on velocity
+                this.updateOrientation();
+
                 // Reset acceleration after each update
                 this.acceleration.x = 0;
                 this.acceleration.y = 0;
             }
+
+            updateLedger(index) {
+                ledger.boids[index] = {
+                    position: { x: this.position.x, y: this.position.y },
+                    velocity: { x: this.velocity.x, y: this.velocity.y },
+                    orientation: Math.atan2(this.velocity.y, this.velocity.x)
+                };
+            }
+
+            // Update orientation based on velocity
+            updateOrientation() {
+                const targetOrientation = Math.atan2(this.velocity.y, this.velocity.x);
+                const angleDifference = targetOrientation - this.orientation;
+
+                // Normalize angleDifference to [-PI, PI]
+                const normalizedDifference = Math.atan2(
+                    Math.sin(angleDifference),
+                    Math.cos(angleDifference)
+                );
+
+                // Apply smoothing factor to avoid abrupt changes
+                const smoothingFactor = 0.1; // Adjust for smoothness
+                this.orientation += normalizedDifference * smoothingFactor;
+
+                // Normalize orientation to [-PI, PI]
+                this.orientation = Math.atan2(
+                    Math.sin(this.orientation),
+                    Math.cos(this.orientation)
+                );
+            }
+
+            calculateLocalRisk(agents, obstacles) {
+                let totalRisk = 0;
+                let nearbyAgents = 0;
+                let nearbyObstacles = 0;
+
+                // Evaluate nearby agents
+                agents.forEach(other => {
+                    if (other !== this) {
+                        const dx = this.position.x - other.position.x;
+                        const dy = this.position.y - other.position.y;
+                        const distance = Math.sqrt(dx ** 2 + dy ** 2);
+
+                        if (distance < this.perceptionRadius) {
+                            nearbyAgents++;
+                            const relativeVelocity = Math.sqrt(
+                                (this.velocity.x - other.velocity.x) ** 2 +
+                                (this.velocity.y - other.velocity.y) ** 2
+                            );
+
+                            // Risk contribution from agents
+                            totalRisk += (1 / distance) * 2.0 + relativeVelocity * 1.0;
+                        }
+                    }
+                });
+
+                // Evaluate nearby obstacles
+                ledger.obstacles.forEach(obstacle => {
+                    const dx = this.position.x - obstacle.x;
+                    const dy = this.position.y - obstacle.y;
+                    const distance = Math.sqrt(dx ** 2 + dy ** 2);
+
+                    if (distance < this.perceptionRadius) {
+                        nearbyObstacles++;
+                        const proximityFactor = (1 - distance / obstacle.sigma);
+
+                        // Risk contribution from obstacles
+                        totalRisk += (1 / distance) * 3.0 + proximityFactor * obstacle.amplitude * 2.0;
+                    }
+                });
+
+                // Normalize risk by total objects in the vicinity
+                const totalObjects = nearbyAgents + nearbyObstacles;
+                if (totalObjects > 0) {
+                    totalRisk /= totalObjects;
+                }
+
+                return {
+                    risk: totalRisk,
+                    agents: nearbyAgents,
+                    obstacles: nearbyObstacles
+                };
+            }
+
 
         }
 
@@ -424,6 +590,14 @@
         canvas.height = window.innerHeight;
         const canvasWidth = canvas.width;
         const canvasHeight = canvas.height;
+
+        const obstacles = [
+            { x: 150, y: 200, amplitude: 1.5, sigma: 50 },  // Example obstacle
+            { x: 400, y: 300, amplitude: 1.0, sigma: 70 },  // Another obstacle
+            { x: 600, y: 400, amplitude: 2.0, sigma: 30 }   // Smaller, sharper influence
+        ];
+
+
         const leader = new Leader(Math.random() * canvasWidth, Math.random() * canvasHeight, canvasWidth, canvasHeight);
 
         const boids = [leader];
@@ -432,6 +606,19 @@
         for (let i = 0; i < 9; i++) {
             boids.push(new Boid(Math.random() * canvasWidth, Math.random() * canvasHeight, canvasWidth, canvasHeight));
         }
+
+        const ledger = {
+            boids: [], // Array to store all drones (boids)
+            obstacles: [] // Array to store all obstacle data
+        };
+
+        obstacles.forEach((obstacle, index) => {
+            ledger.obstacles[index] = {
+                position: { x: obstacle.x, y: obstacle.y },
+                amplitude: obstacle.amplitude,
+                sigma: obstacle.sigma
+            };
+        });
 
         const showPerceptionCheckbox = document.getElementById('showPerceptionCheckbox');
         const followTheLeaderCheckbox = document.getElementById('followTheLeaderCheckbox');
@@ -445,6 +632,7 @@
             maxSpeedValue.textContent = maxSpeedSlider.value;
             maxForceValue.textContent = maxForceSlider.value;
             wallAvoidanceValue.textContent = wallAvoidanceSlider.value;
+            obstacleAvoidanceValue.textContent = obstacleAvoidanceSlider.value;
         }
 
         // Add event listeners to sliders
@@ -455,18 +643,102 @@
         maxSpeedSlider.addEventListener('input', updateSliderValues);
         maxForceSlider.addEventListener('input', updateSliderValues);
         wallAvoidanceSlider.addEventListener('input', updateSliderValues);
+        obstacleAvoidanceSlider.addEventListener('input', updateSliderValues);
 
         // Initial update of slider values
         updateSliderValues();
 
 
+        function calculateHighRiskZones() {
+            const riskZones = [];
+
+            ledger.obstacles.forEach(obstacle => {
+                let totalProximity = 0; // Sum of distances to boids
+                let totalVelocity = 0; // Sum of relative velocities
+                let boidCount = 0; // Number of boids in the risk zone
+
+                ledger.boids.forEach(boid => {
+                    const dx = boid.position.x - obstacle.position.x;
+                    const dy = boid.position.y - obstacle.position.y;
+                    const distance = Math.sqrt(dx ** 2 + dy ** 2);
+
+                    // Check if boid is within the obstacle's influence radius
+                    if (distance < obstacle.sigma) {
+                        boidCount++;
+                        totalProximity += distance;
+
+                        // Calculate relative velocity
+                        const relativeVelocity = Math.sqrt(
+                            boid.velocity.x ** 2 + boid.velocity.y ** 2
+                        );
+                        totalVelocity += relativeVelocity;
+                    }
+                });
+
+                if (boidCount > 0) {
+                    const avgProximity = totalProximity / boidCount;
+                    const avgVelocity = totalVelocity / boidCount;
+
+                    // Weights for risk factors
+                    const w_p = 2.0; // Weight for proximity
+                    const w_d = 1.5; // Weight for density
+                    const w_v = 1.0; // Weight for velocity
+
+                    // Calculate severity
+                    const severity = w_p * (1 / avgProximity) + w_d * boidCount + w_v * avgVelocity;
+
+                    // Add the risk zone with severity
+                    riskZones.push({
+                        x: obstacle.position.x,
+                        y: obstacle.position.y,
+                        radius: obstacle.sigma,
+                        severity: severity
+                    });
+                }
+            });
+
+            return riskZones;
+        }
+
+        function drawObstaclesWithGradient(context, obstacles) {
+            obstacles.forEach(obstacle => {
+                // Create radial gradient
+                const gradient = context.createRadialGradient(
+                    obstacle.x, obstacle.y, 0,
+                    obstacle.x, obstacle.y, obstacle.sigma
+                );
+                gradient.addColorStop(0, 'rgba(255, 0, 0, 0.5)');  // Strong influence
+                gradient.addColorStop(1, 'rgba(255, 0, 0, 0)');    // Fades out
+
+                // Draw the influence area
+                context.beginPath();
+                context.arc(obstacle.x, obstacle.y, obstacle.sigma, 0, Math.PI * 2);
+                context.fillStyle = gradient;
+                context.fill();
+
+                // Draw the obstacle core
+                context.beginPath();
+                context.arc(obstacle.x, obstacle.y, 10, 0, Math.PI * 2);
+                context.fillStyle = 'red';
+                context.fill();
+            });
+        }
+
         // Animation loop
         function animate() {
+            // console.log(calculateHighRiskZones())
             context.clearRect(0, 0, canvas.width, canvas.height);
 
-            boids.forEach(boid => {
-                boid.flock(boids); // Apply flocking behaviors
+            boids.forEach((boid, index) => {
+                boid.flock(boids, obstacles); // Apply flocking behaviors
                 boid.update();     // Update position and velocity
+                boid.updateLedger(index); // Update ledger with boid state
+
+                drawOrientation(context, boid);
+
+
+                // Draw the obstacles
+                drawObstaclesWithGradient(context, obstacles);
 
                 // Draw the boid
                 context.beginPath();
@@ -489,8 +761,21 @@
             requestAnimationFrame(animate);
         }
 
-
         animate();
+
+        function drawOrientation(context, agent) {
+            const arrowLength = 5; // Length of the orientation arrow
+            const arrowX = agent.position.x + Math.cos(agent.orientation) * arrowLength;
+            const arrowY = agent.position.y + Math.sin(agent.orientation) * arrowLength;
+
+            context.beginPath();
+            context.moveTo(agent.position.x, agent.position.y);
+            context.lineTo(arrowX, arrowY);
+            context.strokeStyle = 'white';
+            context.lineWidth = 1;
+            context.stroke();
+        }
+
 
     </script>
 </body>
