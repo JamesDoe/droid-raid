@@ -93,7 +93,7 @@
 
 <body>
     <canvas id="swarmCanvas"></canvas>
-    <div id="title">DROID-RAID Proof of Concept v2.3</div>
+    <div id="title">DROID-RAID Proof of Concept v2.31</div>
     <details id="controlPanel">
         <summary>Agent Parameters</summary>
         <label>
@@ -194,7 +194,10 @@
             context.fill();
         }
 
-
+        function initializeSearchMission() {
+            // Randomize target
+            sugarCube = { x: Math.random() * canvasWidth, y: Math.random() * canvasHeight }
+        };
 
         window.addEventListener('resize', () => {
             canvas.width = window.innerWidth;
@@ -216,6 +219,8 @@
                 followTheLeaderCheckbox.checked = false;
                 formation1Checkbox.checked = false;
                 formation2Checkbox.checked = false;
+
+                initializeSearchMission();
 
                 // Activate PSO-ACO mode
                 agents.forEach(agent => {
