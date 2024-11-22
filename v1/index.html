@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DROID-RAID Swarm Simulation with Global Optimization</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background-color: #fff1eb;
+    }
+
+    .info {
+      font-family: sans-serif;
+      color: #543D5E;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>DROID-RAID Proof of Concept v1.4</h1>
+  <div class="info">
+    <p>FPS: <span data-fps>60</span></p>
+    <p>Drone Count: <span data-count>10</span></p>
+  </div>
+
+  <canvas id="swarmCanvas"></canvas>
+
+  <script>
+    // Constants
+    const DRONE_COUNT = 10;
+    const RADIUS = 80; // Distance drones maintain around the adversary
+    const DRONE_SIZE = 8; // Default size for drones
+    const COLLISION_DISTANCE = 20; // Distance to trigger z-direction movement
+    const MAX_SCALE = 1.5; // Max scale to grow when avoiding collision
+    const MIN_SCALE = 0.5; // Min scale when moving to avoid collisions
+    const CORRECTIVE_FORCE_SCALE = 0.05; // Corrective force
+    const DAMPING_FACTOR = 0.95; // Damping factor to reduce oscillation
+    const REPULSIVE_FORCE_SCALE = 0.1; // Scale of repulsive force
+    const MIN_DISTANCE = 30; // Minimum distance before repulsive force kicks in
+    const canvas = document.getElementById('swarmCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // Drones setup
+    const drones = [];
+    const threat = [0, 0]; // Adversary position
+    let threatSpeed = 3; // Reduced movement speed for realism
+
+    // Store available target positions
+    let availableTargets = [];
+
+    // Arrow key control
+    let keys = {
+      ArrowUp: false,
+      ArrowDown: false,
+      ArrowLeft: false,
+      ArrowRight: false
+    };
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key in keys) keys[e.key] = true;
+    });
+
+    document.addEventListener('keyup', (e) => {
+      if (e.key in keys) keys[e.key] = false;
+    });
+
+    // Setup canvas size
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      initializeDrones(); // Re-initialize drones when resizing the screen
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    // Initialize drones and target positions
+    function initializeDrones() {
+      drones.length = 0;
+      availableTargets.length = 0;
+      const angleIncrement = (2 * Math.PI) / DRONE_COUNT;
+
+      // Calculate the initial target positions (circular pattern)
+      for (let i = 0; i < DRONE_COUNT; i++) {
+        const angle = i * angleIncrement;
+        const targetX = threat[0] + Math.cos(angle) * RADIUS;
+        const targetY = threat[1] + Math.sin(angle) * RADIUS;
+        availableTargets.push({ x: targetX, y: targetY, occupied: false });
+
+        drones.push({
+          angle,
+          x: threat[0] + Math.random() * 100 - 50, // Randomize starting position
+          y: threat[1] + Math.random() * 100 - 50, // Randomize starting position
+          vx: 0, // Velocity in X direction
+          vy: 0, // Velocity in Y direction
+          mass: 0.25, // Set mass for hobbyist drones
+          scale: 1.0, // Initial scale
+          correctiveForce: CORRECTIVE_FORCE_SCALE * (0.9 + Math.random() * 0.2), // +/-10% variation
+          targetIndex: i // Initially assign each drone to a target position
+        });
+      }
+
+      // Place the adversary in the center of the canvas
+      threat[0] = canvas.width / 2;
+      threat[1] = canvas.height / 2;
+    }
+
+    // FPS management and UI
+    let fpsCounter = 60;
+    let frameText = document.querySelector('[data-fps]');
+    let countText = document.querySelector('[data-count]');
+
+    function updateFPS(rate) {
+      fpsCounter = rate;
+      frameText.textContent = Math.round(rate);
+      countText.textContent = drones.length;
+    }
+
+    // Move the threat (adversary) using arrow keys
+    function updateThreat() {
+      if (keys.ArrowUp) threat[1] -= threatSpeed;
+      if (keys.ArrowDown) threat[1] += threatSpeed;
+      if (keys.ArrowLeft) threat[0] -= threatSpeed;
+      if (keys.ArrowRight) threat[0] += threatSpeed;
+
+      // Keep threat within canvas bounds
+      threat[0] = Math.max(0, Math.min(canvas.width, threat[0]));
+      threat[1] = Math.max(0, Math.min(canvas.height, threat[1]));
+    }
+
+    // Function to dynamically reassign drones based on global optimization
+    function reassignDrones() {
+      // Update availableTargets based on the new position of the adversary
+      const angleIncrement = (2 * Math.PI) / DRONE_COUNT;
+      availableTargets.forEach((target, i) => {
+        const angle = i * angleIncrement;
+        target.x = threat[0] + Math.cos(angle) * RADIUS;
+        target.y = threat[1] + Math.sin(angle) * RADIUS;
+        target.occupied = false; // Reset occupation status
+      });
+
+      // Calculate total cost (distance) for each drone to each available position
+      let assignments = new Array(DRONE_COUNT).fill(null); // Track which target is assigned to each drone
+
+      // Calculate the cost (distance) of every drone to every target
+      let costs = drones.map(drone => {
+        return availableTargets.map(target => Math.hypot(drone.x - target.x, drone.y - target.y));
+      });
+
+      // Assign drones to targets using a greedy algorithm
+      for (let i = 0; i < DRONE_COUNT; i++) {
+        let bestDroneIndex = null;
+        let bestTargetIndex = null;
+        let bestCost = Infinity;
+
+        for (let d = 0; d < DRONE_COUNT; d++) {
+          if (assignments[d] !== null) continue; // Skip drones that are already assigned
+          for (let t = 0; t < DRONE_COUNT; t++) {
+            if (availableTargets[t].occupied) continue; // Skip occupied targets
+            if (costs[d][t] < bestCost) {
+              bestCost = costs[d][t];
+              bestDroneIndex = d;
+              bestTargetIndex = t;
+            }
+          }
+        }
+
+        // Assign the best drone to the best target
+        if (bestDroneIndex !== null && bestTargetIndex !== null) {
+          assignments[bestDroneIndex] = bestTargetIndex;
+          availableTargets[bestTargetIndex].occupied = true;
+          drones[bestDroneIndex].targetIndex = bestTargetIndex;
+        }
+      }
+    }
+
+
+    // Grid setup for optimization
+    const GRID_SIZE = 100; // Size of each grid cell (adjust as needed for optimization)
+    let grid = [];
+
+    // Initialize grid based on canvas size
+    function initializeGrid() {
+      const cols = Math.ceil(canvas.width / GRID_SIZE);
+      const rows = Math.ceil(canvas.height / GRID_SIZE);
+      grid = Array.from({ length: cols }, () => Array.from({ length: rows }, () => []));
+    }
+
+    // Update the grid with drone positions
+    function updateGrid() {
+      // Clear the grid
+      grid.forEach(column => column.forEach(cell => cell.length = 0));
+
+      // Place drones into grid cells based on their positions
+      drones.forEach(drone => {
+        const col = Math.floor(drone.x / GRID_SIZE);
+        const row = Math.floor(drone.y / GRID_SIZE);
+        if (col >= 0 && col < grid.length && row >= 0 && row < grid[0].length) {
+          grid[col][row].push(drone);
+        }
+      });
+    }
+
+    // Get neighboring cells for a drone’s current cell
+    function getNeighbors(col, row) {
+      const neighbors = [];
+      for (let i = -1; i <= 1; i++) {
+        for (let j = -1; j <= 1; j++) {
+          const newCol = col + i;
+          const newRow = row + j;
+          if (newCol >= 0 && newCol < grid.length && newRow >= 0 && newRow < grid[0].length) {
+            neighbors.push(...grid[newCol][newRow]);
+          }
+        }
+      }
+      return neighbors;
+    }
+
+    // Drones logic with collision avoidance and global reassignment
+    function tick() {
+      updateThreat();
+      reassignDrones();
+      initializeGrid();
+      updateGrid();
+
+      drones.forEach((drone, i) => {
+        const target = availableTargets[drone.targetIndex];
+        const targetX = target.x;
+        const targetY = target.y;
+
+        // Calculate repulsive forces
+        let forceX = 0;
+        let forceY = 0;
+
+        // Get the drone’s grid cell and neighbors
+        const col = Math.floor(drone.x / GRID_SIZE);
+        const row = Math.floor(drone.y / GRID_SIZE);
+        const neighbors = getNeighbors(col, row);
+
+        // Repulsion from adversary
+        const distanceToAdversary = Math.hypot(drone.x - threat[0], drone.y - threat[1]);
+        if (distanceToAdversary < MIN_DISTANCE) {
+          const repulsion = REPULSIVE_FORCE_SCALE / Math.pow(distanceToAdversary, 2);
+          forceX += repulsion * (drone.x - threat[0]) / distanceToAdversary;
+          forceY += repulsion * (drone.y - threat[1]) / distanceToAdversary;
+        }
+
+        // Repulsion from nearby drones in neighboring cells
+        neighbors.forEach(otherDrone => {
+          if (otherDrone !== drone) {
+            const distanceToDrone = Math.hypot(drone.x - otherDrone.x, drone.y - otherDrone.y);
+            if (distanceToDrone < MIN_DISTANCE) {
+              const repulsion = REPULSIVE_FORCE_SCALE / Math.pow(distanceToDrone, 2);
+              forceX += repulsion * (drone.x - otherDrone.x) / distanceToDrone;
+              forceY += repulsion * (drone.y - otherDrone.y) / distanceToDrone;
+            }
+          }
+        });
+
+        // Move drone slightly toward the minima using gradient descent
+        drone.vx += ((targetX - drone.x) * drone.correctiveForce + forceX) / drone.mass;
+        drone.vy += ((targetY - drone.y) * drone.correctiveForce + forceY) / drone.mass;
+
+        // Update position
+        drone.x += drone.vx;
+        drone.y += drone.vy;
+
+        // Apply damping to reduce oscillations
+        drone.vx *= DAMPING_FACTOR;
+        drone.vy *= DAMPING_FACTOR;
+      });
+    }
+    // Draw function for canvas
+    function draw() {
+      // Clear the canvas
+      ctx.fillStyle = 'rgba(255,241,235,1)'; // No trails in this version
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Draw the threat (red circle)
+      ctx.fillStyle = '#FF0000';
+      ctx.beginPath();
+      ctx.arc(threat[0], threat[1], 12, 0, Math.PI * 2, false); // Adjust size for adversary drone
+      ctx.fill();
+
+      // Draw drones (in geometric pattern around the adversary)
+      drones.forEach((drone) => {
+        ctx.save();
+        ctx.translate(drone.x, drone.y);
+        ctx.scale(drone.scale, drone.scale); // Apply the scaling to simulate z-direction
+        ctx.fillStyle = '#FFD700'; // Bright yellow color for drones
+        ctx.fillRect(-DRONE_SIZE / 2, -DRONE_SIZE / 2, DRONE_SIZE, DRONE_SIZE); // Adjust position to center the drone
+        ctx.restore();
+      });
+    }
+
+    // Animation loop
+    function animate() {
+      tick();
+      draw();
+      requestAnimationFrame(animate);
+    }
+
+    animate(); // Start the animation loop
+
+    // Track frame rate
+    let lastFrameTime = Date.now();
+    setInterval(function () {
+      const now = Date.now();
+      const deltaTime = now - lastFrameTime;
+      lastFrameTime = now;
+      const fps = 1000 / deltaTime;
+      updateFPS(fps);
+    }, 1000 / 60); // Updates roughly every second
+  </script>
+</body>
+
+</html>
