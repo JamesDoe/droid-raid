@@ -2,319 +2,997 @@
 <html lang="en">
 
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DROID-RAID Swarm Simulation with Global Optimization</title>
-  <style>
-    body {
-      margin: 0;
-      padding: 0;
-      overflow: hidden;
-      background-color: #fff1eb;
-    }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DROID-RAID Swarm Simulation with Global Optimization</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #000;
+        }
 
-    .info {
-      font-family: sans-serif;
-      color: #543D5E;
-    }
-  </style>
+        canvas {
+            display: block;
+        }
+
+        /* Existing styles */
+
+        #controlPanel {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            max-width: 250px;
+            background: rgba(255, 255, 255, 0.8);
+            padding: 0;
+            border-radius: 8px;
+            z-index: 10;
+            font-family: Arial, sans-serif;
+            color: #000;
+        }
+
+        #controlPanel summary {
+            list-style: none;
+            padding: 10px;
+            cursor: pointer;
+            font-weight: bold;
+            background-color: #f0f0f0;
+            margin: 0;
+            border-radius: 8px;
+        }
+
+        #controlPanel summary::-webkit-details-marker {
+            display: none;
+        }
+
+        #controlPanel summary::after {
+            content: '▼';
+            float: right;
+            font-size: 12px;
+        }
+
+        #controlPanel[open] summary::after {
+            content: '▲';
+        }
+
+        #controlPanel>* {
+            padding: 5px;
+        }
+
+        #controlPanel label {
+            display: block;
+            /* margin-top: 10px; */
+        }
+
+        #controlPanel input[type="range"] {
+            width: 100%;
+        }
+
+        details {
+            padding: .8em;
+        }
+
+        #title {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            color: white;
+            font-family: Arial, sans-serif;
+            font-size: 18px;
+            font-weight: bold;
+            z-index: 15;
+            /* Ensure it appears above other elements */
+            background-color: rgba(0, 0, 0, 0.5);
+            /* Optional: Semi-transparent background for readability */
+            padding: 5px 10px;
+            border-radius: 5px;
+        }
+    </style>
 </head>
 
 <body>
-  <h1>DROID-RAID Proof of Concept v1.4</h1>
-  <div class="info">
-    <p>FPS: <span data-fps>60</span></p>
-    <p>Drone Count: <span data-count>10</span></p>
-  </div>
+    <canvas id="swarmCanvas"></canvas>
+    <div id="title">DROID-RAID Proof of Concept v2.31</div>
+    <details id="controlPanel">
+        <summary>Agent Parameters</summary>
+        <label>
+            Separation Weight: <span id="separationValue">1.5</span>
+            <input type="range" id="separationSlider" min="0" max="5" step="0.1" value="1.5">
+        </label>
+        <label>
+            Alignment Weight: <span id="alignmentValue">1.0</span>
+            <input type="range" id="alignmentSlider" min="0" max="5" step="0.1" value="1.0">
+        </label>
+        <label>
+            Cohesion Weight: <span id="cohesionValue">1.0</span>
+            <input type="range" id="cohesionSlider" min="0" max="2" step="0.1" value="1.0">
+        </label>
+        <label>
+            Perception Radius: <span id="perceptionValue">50</span>
+            <input type="range" id="perceptionSlider" min="10" max="200" step="1" value="50">
+        </label>
+        <label>
+            Wall Avoidance Weight: <span id="wallAvoidanceValue">10.0</span>
+            <input type="range" id="wallAvoidanceSlider" min="0.1" max="10" step="0.1" value="10.0">
+        </label>
+        <label>
+            Obstacle Avoidance Weight: <span id="obstacleAvoidanceValue">10.0</span>
+            <input type="range" id="obstacleAvoidanceSlider" min="0.1" max="10" step="0.1" value="10.0">
+        </label>
+        <label>
+            Maximum Speed: <span id="maxSpeedValue">4</span>
+            <input type="range" id="maxSpeedSlider" min="1" max="10" step="0.1" value="4">
+        </label>
+        <label>
+            Maximum Force: <span id="maxForceValue">0.2</span>
+            <input type="range" id="maxForceSlider" min="0.01" max="2" step="0.01" value="0.2">
+        </label>
+        <label>
+            <input type="checkbox" id="showPerceptionCheckbox" checked>
+            Show Perception Radius
+        </label>
+        <label>
+            <input type="checkbox" id="showOrientationCheckbox" checked>
+            Show Orientation
+        </label>
+        <label>
+            <input type="checkbox" id="showFOVCheckbox" checked>
+            Show FOV
+        </label>
+        <label>
+            <input type="checkbox" id="followTheLeaderCheckbox" checked>
+            Pursue<!-- Follow The Leader -->
+        </label>
+        <label>
+            <input onChange="if(!this.checked)formation2Checkbox.checked=false" type="checkbox" id="formation1Checkbox">
+            Follow<!-- Maintain Formation -->
+        </label>
+        <label>
+            <input onChange="if(this.checked)formation1Checkbox.checked=true" type="checkbox" id="formation2Checkbox">
+            Protect<!-- Circular Formation -->
+        </label>
+        <label>
+            <input type="checkbox" id="searchRevealCheckbox">
+            Search and Reveal (PSO-ACO Mode)
+        </label>
 
-  <canvas id="swarmCanvas"></canvas>
+    </details>
+    <script>
+        function drawFieldOfView(context, agent) {
+            const fovAngle = Math.PI / 4; // 90-degree FoV
+            const perceptionRadius = agent.perceptionRadius; // Use the agent's perception radius for the cone length
 
-  <script>
-    // Constants
-    const DRONE_COUNT = 10;
-    const RADIUS = 80; // Distance drones maintain around the adversary
-    const DRONE_SIZE = 8; // Default size for drones
-    const COLLISION_DISTANCE = 20; // Distance to trigger z-direction movement
-    const MAX_SCALE = 1.5; // Max scale to grow when avoiding collision
-    const MIN_SCALE = 0.5; // Min scale when moving to avoid collisions
-    const CORRECTIVE_FORCE_SCALE = 0.05; // Corrective force
-    const DAMPING_FACTOR = 0.95; // Damping factor to reduce oscillation
-    const REPULSIVE_FORCE_SCALE = 0.1; // Scale of repulsive force
-    const MIN_DISTANCE = 30; // Minimum distance before repulsive force kicks in
-    const canvas = document.getElementById('swarmCanvas');
-    const ctx = canvas.getContext('2d');
+            // Calculate the boundary angles
+            const leftBoundary = agent.orientation - fovAngle;
+            const rightBoundary = agent.orientation + fovAngle;
 
-    // Drones setup
-    const drones = [];
-    const threat = [0, 0]; // Adversary position
-    let threatSpeed = 3; // Reduced movement speed for realism
+            // Calculate the end points of the boundaries
+            const leftX = agent.position.x + Math.cos(leftBoundary) * perceptionRadius;
+            const leftY = agent.position.y + Math.sin(leftBoundary) * perceptionRadius;
 
-    // Store available target positions
-    let availableTargets = [];
+            const rightX = agent.position.x + Math.cos(rightBoundary) * perceptionRadius;
+            const rightY = agent.position.y + Math.sin(rightBoundary) * perceptionRadius;
 
-    // Arrow key control
-    let keys = {
-      ArrowUp: false,
-      ArrowDown: false,
-      ArrowLeft: false,
-      ArrowRight: false
-    };
+            // Create a radial gradient
+            const gradient = context.createRadialGradient(
+                agent.position.x, agent.position.y, 0, // Inner circle (agent's position)
+                agent.position.x, agent.position.y, perceptionRadius // Outer circle
+            );
+            gradient.addColorStop(0, 'rgba(0, 255, 0, 0.38)'); // Fully visible near the agent
+            gradient.addColorStop(1, 'rgba(0, 255, 0, 0)');   // Fully transparent at the edge
 
-    document.addEventListener('keydown', (e) => {
-      if (e.key in keys) keys[e.key] = true;
-    });
+            // Draw the cone
+            context.beginPath();
+            context.moveTo(agent.position.x, agent.position.y); // Start at the agent's position
+            context.lineTo(leftX, leftY); // Draw to the left boundary
+            context.lineTo(rightX, rightY); // Draw to the right boundary
+            context.closePath(); // Close the triangle
 
-    document.addEventListener('keyup', (e) => {
-      if (e.key in keys) keys[e.key] = false;
-    });
-
-    // Setup canvas size
-    function resizeCanvas() {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-      initializeDrones(); // Re-initialize drones when resizing the screen
-    }
-    window.addEventListener('resize', resizeCanvas);
-    resizeCanvas();
-
-    // Initialize drones and target positions
-    function initializeDrones() {
-      drones.length = 0;
-      availableTargets.length = 0;
-      const angleIncrement = (2 * Math.PI) / DRONE_COUNT;
-
-      // Calculate the initial target positions (circular pattern)
-      for (let i = 0; i < DRONE_COUNT; i++) {
-        const angle = i * angleIncrement;
-        const targetX = threat[0] + Math.cos(angle) * RADIUS;
-        const targetY = threat[1] + Math.sin(angle) * RADIUS;
-        availableTargets.push({ x: targetX, y: targetY, occupied: false });
-
-        drones.push({
-          angle,
-          x: threat[0] + Math.random() * 100 - 50, // Randomize starting position
-          y: threat[1] + Math.random() * 100 - 50, // Randomize starting position
-          vx: 0, // Velocity in X direction
-          vy: 0, // Velocity in Y direction
-          mass: 0.25, // Set mass for hobbyist drones
-          scale: 1.0, // Initial scale
-          correctiveForce: CORRECTIVE_FORCE_SCALE * (0.9 + Math.random() * 0.2), // +/-10% variation
-          targetIndex: i // Initially assign each drone to a target position
-        });
-      }
-
-      // Place the adversary in the center of the canvas
-      threat[0] = canvas.width / 2;
-      threat[1] = canvas.height / 2;
-    }
-
-    // FPS management and UI
-    let fpsCounter = 60;
-    let frameText = document.querySelector('[data-fps]');
-    let countText = document.querySelector('[data-count]');
-
-    function updateFPS(rate) {
-      fpsCounter = rate;
-      frameText.textContent = Math.round(rate);
-      countText.textContent = drones.length;
-    }
-
-    // Move the threat (adversary) using arrow keys
-    function updateThreat() {
-      if (keys.ArrowUp) threat[1] -= threatSpeed;
-      if (keys.ArrowDown) threat[1] += threatSpeed;
-      if (keys.ArrowLeft) threat[0] -= threatSpeed;
-      if (keys.ArrowRight) threat[0] += threatSpeed;
-
-      // Keep threat within canvas bounds
-      threat[0] = Math.max(0, Math.min(canvas.width, threat[0]));
-      threat[1] = Math.max(0, Math.min(canvas.height, threat[1]));
-    }
-
-    // Function to dynamically reassign drones based on global optimization
-    function reassignDrones() {
-      // Update availableTargets based on the new position of the adversary
-      const angleIncrement = (2 * Math.PI) / DRONE_COUNT;
-      availableTargets.forEach((target, i) => {
-        const angle = i * angleIncrement;
-        target.x = threat[0] + Math.cos(angle) * RADIUS;
-        target.y = threat[1] + Math.sin(angle) * RADIUS;
-        target.occupied = false; // Reset occupation status
-      });
-
-      // Calculate total cost (distance) for each drone to each available position
-      let assignments = new Array(DRONE_COUNT).fill(null); // Track which target is assigned to each drone
-
-      // Calculate the cost (distance) of every drone to every target
-      let costs = drones.map(drone => {
-        return availableTargets.map(target => Math.hypot(drone.x - target.x, drone.y - target.y));
-      });
-
-      // Assign drones to targets using a greedy algorithm
-      for (let i = 0; i < DRONE_COUNT; i++) {
-        let bestDroneIndex = null;
-        let bestTargetIndex = null;
-        let bestCost = Infinity;
-
-        for (let d = 0; d < DRONE_COUNT; d++) {
-          if (assignments[d] !== null) continue; // Skip drones that are already assigned
-          for (let t = 0; t < DRONE_COUNT; t++) {
-            if (availableTargets[t].occupied) continue; // Skip occupied targets
-            if (costs[d][t] < bestCost) {
-              bestCost = costs[d][t];
-              bestDroneIndex = d;
-              bestTargetIndex = t;
-            }
-          }
+            // Fill the cone with the gradient
+            context.fillStyle = gradient;
+            context.fill();
         }
 
-        // Assign the best drone to the best target
-        if (bestDroneIndex !== null && bestTargetIndex !== null) {
-          assignments[bestDroneIndex] = bestTargetIndex;
-          availableTargets[bestTargetIndex].occupied = true;
-          drones[bestDroneIndex].targetIndex = bestTargetIndex;
-        }
-      }
-    }
+        function initializeSearchMission() {
+            // Randomize target
+            sugarCube = { x: Math.random() * canvasWidth, y: Math.random() * canvasHeight }
+        };
 
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
 
-    // Grid setup for optimization
-    const GRID_SIZE = 100; // Size of each grid cell (adjust as needed for optimization)
-    let grid = [];
-
-    // Initialize grid based on canvas size
-    function initializeGrid() {
-      const cols = Math.ceil(canvas.width / GRID_SIZE);
-      const rows = Math.ceil(canvas.height / GRID_SIZE);
-      grid = Array.from({ length: cols }, () => Array.from({ length: rows }, () => []));
-    }
-
-    // Update the grid with drone positions
-    function updateGrid() {
-      // Clear the grid
-      grid.forEach(column => column.forEach(cell => cell.length = 0));
-
-      // Place drones into grid cells based on their positions
-      drones.forEach(drone => {
-        const col = Math.floor(drone.x / GRID_SIZE);
-        const row = Math.floor(drone.y / GRID_SIZE);
-        if (col >= 0 && col < grid.length && row >= 0 && row < grid[0].length) {
-          grid[col][row].push(drone);
-        }
-      });
-    }
-
-    // Get neighboring cells for a drone’s current cell
-    function getNeighbors(col, row) {
-      const neighbors = [];
-      for (let i = -1; i <= 1; i++) {
-        for (let j = -1; j <= 1; j++) {
-          const newCol = col + i;
-          const newRow = row + j;
-          if (newCol >= 0 && newCol < grid.length && newRow >= 0 && newRow < grid[0].length) {
-            neighbors.push(...grid[newCol][newRow]);
-          }
-        }
-      }
-      return neighbors;
-    }
-
-    // Drones logic with collision avoidance and global reassignment
-    function tick() {
-      updateThreat();
-      reassignDrones();
-      initializeGrid();
-      updateGrid();
-
-      drones.forEach((drone, i) => {
-        const target = availableTargets[drone.targetIndex];
-        const targetX = target.x;
-        const targetY = target.y;
-
-        // Calculate repulsive forces
-        let forceX = 0;
-        let forceY = 0;
-
-        // Get the drone’s grid cell and neighbors
-        const col = Math.floor(drone.x / GRID_SIZE);
-        const row = Math.floor(drone.y / GRID_SIZE);
-        const neighbors = getNeighbors(col, row);
-
-        // Repulsion from adversary
-        const distanceToAdversary = Math.hypot(drone.x - threat[0], drone.y - threat[1]);
-        if (distanceToAdversary < MIN_DISTANCE) {
-          const repulsion = REPULSIVE_FORCE_SCALE / Math.pow(distanceToAdversary, 2);
-          forceX += repulsion * (drone.x - threat[0]) / distanceToAdversary;
-          forceY += repulsion * (drone.y - threat[1]) / distanceToAdversary;
-        }
-
-        // Repulsion from nearby drones in neighboring cells
-        neighbors.forEach(otherDrone => {
-          if (otherDrone !== drone) {
-            const distanceToDrone = Math.hypot(drone.x - otherDrone.x, drone.y - otherDrone.y);
-            if (distanceToDrone < MIN_DISTANCE) {
-              const repulsion = REPULSIVE_FORCE_SCALE / Math.pow(distanceToDrone, 2);
-              forceX += repulsion * (drone.x - otherDrone.x) / distanceToDrone;
-              forceY += repulsion * (drone.y - otherDrone.y) / distanceToDrone;
-            }
-          }
+            // Update canvas dimensions in each agent
+            agents.forEach(agent => {
+                agent.canvasWidth = canvas.width;
+                agent.canvasHeight = canvas.height;
+            });
         });
 
-        // Move drone slightly toward the minima using gradient descent
-        drone.vx += ((targetX - drone.x) * drone.correctiveForce + forceX) / drone.mass;
-        drone.vy += ((targetY - drone.y) * drone.correctiveForce + forceY) / drone.mass;
+        const searchRevealCheckbox = document.getElementById('searchRevealCheckbox');
+        const showFOVCheckbox = document.getElementById('showFOVCheckbox');
+        const showOrientationCheckbox = document.getElementById('showOrientationCheckbox');
 
-        // Update position
-        drone.x += drone.vx;
-        drone.y += drone.vy;
+        searchRevealCheckbox.addEventListener('change', () => {
+            if (searchRevealCheckbox.checked) {
+                followTheLeaderCheckbox.checked = false;
+                formation1Checkbox.checked = false;
+                formation2Checkbox.checked = false;
 
-        // Apply damping to reduce oscillations
-        drone.vx *= DAMPING_FACTOR;
-        drone.vy *= DAMPING_FACTOR;
-      });
-    }
-    // Draw function for canvas
-    function draw() {
-      // Clear the canvas
-      ctx.fillStyle = 'rgba(255,241,235,1)'; // No trails in this version
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+                initializeSearchMission();
 
-      // Draw the threat (red circle)
-      ctx.fillStyle = '#FF0000';
-      ctx.beginPath();
-      ctx.arc(threat[0], threat[1], 12, 0, Math.PI * 2, false); // Adjust size for adversary drone
-      ctx.fill();
+                // Activate PSO-ACO mode
+                agents.forEach(agent => {
+                    agent.inSearchMode = true;
+                });
+            } else {
+                // Return to default behavior
+                agents.forEach(agent => {
+                    agent.inSearchMode = false;
+                });
+            }
+        });
 
-      // Draw drones (in geometric pattern around the adversary)
-      drones.forEach((drone) => {
-        ctx.save();
-        ctx.translate(drone.x, drone.y);
-        ctx.scale(drone.scale, drone.scale); // Apply the scaling to simulate z-direction
-        ctx.fillStyle = '#FFD700'; // Bright yellow color for drones
-        ctx.fillRect(-DRONE_SIZE / 2, -DRONE_SIZE / 2, DRONE_SIZE, DRONE_SIZE); // Adjust position to center the drone
-        ctx.restore();
-      });
-    }
 
-    // Animation loop
-    function animate() {
-      tick();
-      draw();
-      requestAnimationFrame(animate);
-    }
+        // Get references to the sliders and value displays
+        const separationSlider = document.getElementById('separationSlider');
+        const alignmentSlider = document.getElementById('alignmentSlider');
+        const cohesionSlider = document.getElementById('cohesionSlider');
+        const perceptionSlider = document.getElementById('perceptionSlider');
+        const maxSpeedSlider = document.getElementById('maxSpeedSlider');
+        const maxForceSlider = document.getElementById('maxForceSlider');
+        const wallAvoidanceSlider = document.getElementById('wallAvoidanceSlider');
+        const obstacleAvoidanceSlider = document.getElementById('obstacleAvoidanceSlider');
 
-    animate(); // Start the animation loop
+        const separationValue = document.getElementById('separationValue');
+        const alignmentValue = document.getElementById('alignmentValue');
+        const cohesionValue = document.getElementById('cohesionValue');
+        const perceptionValue = document.getElementById('perceptionValue');
+        const maxSpeedValue = document.getElementById('maxSpeedValue');
+        const maxForceValue = document.getElementById('maxForceValue');
+        const wallAvoidanceValue = document.getElementById('wallAvoidanceValue');
+        const obstacleAvoidanceValue = document.getElementById('obstacleAvoidanceValue');
 
-    // Track frame rate
-    let lastFrameTime = Date.now();
-    setInterval(function () {
-      const now = Date.now();
-      const deltaTime = now - lastFrameTime;
-      lastFrameTime = now;
-      const fps = 1000 / deltaTime;
-      updateFPS(fps);
-    }, 1000 / 60); // Updates roughly every second
-  </script>
+        class Agent {
+            constructor(x, y, canvasWidth, canvasHeight) {
+                this.color = "green"; // color
+                this.position = { x, y }; // Agent's current position
+                this.velocity = { x: Math.random() * 2 - 1, y: Math.random() * 2 - 1 }; // Random initial velocity
+                this.acceleration = { x: 0, y: 0 }; // Acceleration vector
+                this.orientation = Math.atan2(this.velocity.y, this.velocity.x); // Initial orientation
+                this.perceptionRadius = 50; // Radius to detect neighbors
+                this.perceptionBufferFactor = 1.0618;
+                this.maxSpeed = 4; // Maximum speed
+                this.maxForce = 0.1; // Maximum steering force
+                this.canvasWidth = canvasWidth;
+                this.canvasHeight = canvasHeight;
+            }
+
+            // Add a force to the agent's acceleration
+            applyForce(force) {
+                this.acceleration.x += force.x;
+                this.acceleration.y += force.y;
+            }
+
+            separation(agents) {
+                const desiredSeparation = 25.0; // Minimum desired separation between agents
+                const steer = { x: 0, y: 0 };
+                let total = 0;
+
+                agents.forEach(other => {
+                    const dx = this.position.x - other.position.x;
+                    const dy = this.position.y - other.position.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+
+                    if (other !== this && distance > 0 && distance < desiredSeparation) {
+                        // Calculate vector pointing away from neighbor, weighted by distance
+                        const diff = {
+                            x: dx / (distance * distance),
+                            y: dy / (distance * distance)
+                        };
+                        steer.x += diff.x;
+                        steer.y += diff.y;
+                        total++;
+                    }
+                });
+
+                if (total > 0) {
+                    // Average the steering force
+                    steer.x /= total;
+                    steer.y /= total;
+
+                    // Normalize and scale to maxForce
+                    const magnitude = Math.sqrt(steer.x * steer.x + steer.y * steer.y);
+                    if (magnitude > 0) {
+                        steer.x = (steer.x / magnitude) * this.maxForce;
+                        steer.y = (steer.y / magnitude) * this.maxForce;
+                    }
+                }
+
+                return steer;
+            }
+
+
+            alignment(agents) {
+                const steer = { x: 0, y: 0 };
+                let total = 0;
+
+                agents.forEach(other => {
+                    const distance = Math.sqrt(
+                        (this.position.x - other.position.x) ** 2 +
+                        (this.position.y - other.position.y) ** 2
+                    );
+
+                    if (other !== this && distance < this.perceptionRadius) {
+                        steer.x += other.velocity.x;
+                        steer.y += other.velocity.y;
+                        steer.x += Math.cos(other.orientation); // Use neighbor's orientation
+                        steer.y += Math.sin(other.orientation);
+                        total++;
+                    }
+                });
+
+                if (total > 0) {
+                    steer.x /= total;
+                    steer.y /= total;
+
+                    // Normalize and scale to maxForce
+                    const magnitude = Math.sqrt(steer.x ** 2 + steer.y ** 2);
+                    if (magnitude > 0) {
+                        steer.x = (steer.x / magnitude) * this.maxForce;
+                        steer.y = (steer.y / magnitude) * this.maxForce;
+                    }
+                }
+
+                return steer;
+            }
+
+            cohesion(agents) {
+                const steer = { x: 0, y: 0 };
+                let total = 0;
+
+                agents.forEach(other => {
+                    const distance = Math.sqrt(
+                        (this.position.x - other.position.x) ** 2 +
+                        (this.position.y - other.position.y) ** 2
+                    );
+
+                    if (other !== this && distance < this.perceptionRadius) {
+                        steer.x += other.position.x;
+                        steer.y += other.position.y;
+                        total++;
+                    }
+                });
+
+                if (total > 0) {
+                    steer.x /= total;
+                    steer.y /= total;
+
+                    // Steer toward the average position
+                    steer.x = steer.x - this.position.x;
+                    steer.y = steer.y - this.position.y;
+
+                    // Normalize and scale to maxForce
+                    const magnitude = Math.sqrt(steer.x ** 2 + steer.y ** 2);
+                    if (magnitude > 0) {
+                        steer.x = (steer.x / magnitude) * this.maxForce;
+                        steer.y = (steer.y / magnitude) * this.maxForce;
+                    }
+                }
+
+                return steer;
+            }
+
+            avoidObstacles(obstacles) {
+                const steer = { x: 0, y: 0 };
+                let imminentCollision = false;
+
+                obstacles.forEach(obstacle => {
+                    const dx = this.position.x - obstacle.x;
+                    const dy = this.position.y - obstacle.y;
+                    const distance = Math.sqrt(dx ** 2 + dy ** 2);
+
+                    if (distance < (this.perceptionRadius * this.perceptionBufferFactor)) {
+                        // Compute Gaussian influence
+                        const influence = obstacle.amplitude * Math.exp(-((distance ** 2) / (2 * obstacle.sigma ** 2)));
+
+                        // Define critical threshold
+                        const criticalThreshold = 0.38 * obstacle.amplitude;
+
+                        if (influence > criticalThreshold) {
+                            // Imminent collision detected
+                            imminentCollision = true;
+
+                            // Apply hard repulsion
+                            steer.x += (dx / distance) * this.maxForce * 8;
+                            steer.y += (dy / distance) * this.maxForce * 8;
+                        } else {
+                            // Scale smooth Gaussian avoidance force by local risk
+                            const localRisk = this.calculateLocalRisk([], obstacles).risk;
+                            steer.x += ((1 + localRisk) * influence) * (dx / distance);
+                            steer.y += ((1 + localRisk) * influence) * (dy / distance);
+                        }
+                    }
+                });
+
+                // Normalize and scale to maxForce
+                const magnitude = Math.sqrt(steer.x ** 2 + steer.y ** 2);
+                if (magnitude > 0) {
+                    steer.x = (steer.x / magnitude) * this.maxForce;
+                    steer.y = (steer.y / magnitude) * this.maxForce;
+                }
+
+                // Apply velocity scaling if imminent collision
+                if (imminentCollision) {
+                    const influence = Math.max(0, steer.x ** 2 + steer.y ** 2);
+                    const criticalThreshold = 0.5 * Math.max(...obstacles.map(o => o.amplitude));
+                    const scalingFactor = 1 - Math.min(1, influence / criticalThreshold);
+
+                    // Scale velocity and acceleration
+                    this.velocity.x *= scalingFactor;
+                    this.velocity.y *= scalingFactor;
+                    this.acceleration.x *= scalingFactor;
+                    this.acceleration.y *= scalingFactor;
+                }
+
+                return steer;
+            }
+
+            flock(agents, obstacles) {
+                const localRiskData = this.calculateLocalRisk(agents, obstacles);
+                const localRisk = localRiskData.risk;
+
+                // Get weights from sliders
+                const separationWeight = parseFloat(separationSlider.value);
+                const wallAvoidanceWeight = parseFloat(wallAvoidanceSlider.value);
+                const obstacleAvoidanceWeight = parseFloat(obstacleAvoidanceSlider.value);
+                const followForceWeight = 1.0;
+
+                // Decrease alignment and cohesion weights in high-risk areas
+                const alignmentWeight = parseFloat(alignmentSlider.value) * (1 - Math.min(localRisk / 10, 0.8));
+                const cohesionWeight = parseFloat(cohesionSlider.value) * (1 - Math.min(localRisk / 10, 0.8));
+
+                const separationForce = this.separation(agents);
+
+                const obstacleAvoidanceForce = this.avoidObstacles(obstacles);
+                const wallAvoidanceForce = this.avoidWalls();
+
+                this.applyForce({
+                    x: separationForce.x * parseFloat(separationSlider.value),
+                    y: separationForce.y * parseFloat(separationSlider.value)
+                });
+
+                if (followTheLeaderCheckbox.checked && this.isLeader && !formation2Checkbox.checked) {
+
+                } else {
+                    const alignmentForce = this.alignment(agents);
+                    const cohesionForce = this.cohesion(agents);
+                    this.applyForce({
+                        x: alignmentForce.x * alignmentWeight,
+                        y: alignmentForce.y * alignmentWeight
+                    });
+
+                    this.applyForce({
+                        x: cohesionForce.x * cohesionWeight,
+                        y: cohesionForce.y * cohesionWeight
+                    });
+                }
+
+                this.applyForce({
+                    x: obstacleAvoidanceForce.x * parseFloat(obstacleAvoidanceSlider.value),
+                    y: obstacleAvoidanceForce.y * parseFloat(obstacleAvoidanceSlider.value)
+                });
+
+                this.applyForce({
+                    x: wallAvoidanceForce.x * wallAvoidanceWeight,
+                    y: wallAvoidanceForce.y * wallAvoidanceWeight
+                });
+
+                if (followTheLeaderCheckbox.checked && !this.isLeader) {
+                    const dx = leader.position.x - this.position.x;
+                    const dy = leader.position.y - this.position.y;
+
+                    if (formation1Checkbox.checked) {
+                        if (formation2Checkbox.checked) {
+                            const radius = 50; // Desired radius of the circle around the leader
+                            const angleStep = (2 * Math.PI) / (agents.length - 1); // Angle step for even spacing
+
+                            // Calculate all target positions on the circle
+                            const targetPositions = [];
+                            for (let i = 0; i < agents.length - 1; i++) {
+                                const angle = angleStep * i;
+                                targetPositions.push({
+                                    x: leader.position.x + Math.cos(angle) * radius,
+                                    y: leader.position.y + Math.sin(angle) * radius,
+                                });
+                            }
+
+                            // Find the closest target position to this agent
+                            let closestTargetIndex = -1;
+                            let closestDistance = Infinity;
+                            targetPositions.forEach((target, index) => {
+                                const dx = target.x - this.position.x;
+                                const dy = target.y - this.position.y;
+                                const distance = Math.sqrt(dx ** 2 + dy ** 2);
+
+                                if (distance < closestDistance) {
+                                    closestDistance = distance;
+                                    closestTargetIndex = index;
+                                }
+                            });
+
+                            // Assign this agent to the closest target and mark it as taken
+                            const target = targetPositions[closestTargetIndex];
+
+                            // Compute steering force to move toward the closest target position
+                            const steer = {
+                                x: target.x - this.position.x,
+                                y: target.y - this.position.y,
+                            };
+
+                            // Normalize and scale the steering force
+                            const magnitude = Math.sqrt(steer.x ** 2 + steer.y ** 2);
+                            if (magnitude > 0) {
+                                steer.x = (steer.x / magnitude) * this.maxForce;
+                                steer.y = (steer.y / magnitude) * this.maxForce;
+                            }
+
+                            this.applyForce(steer);
+                        } else {
+                            // Compute angle between the agent and the leader's path
+                            const angleToLeader = Math.atan2(dy, dx);
+                            const angleDifference = Math.atan2(
+                                Math.sin(angleToLeader - leader.orientation),
+                                Math.cos(angleToLeader - leader.orientation)
+                            );
+
+                            // If the agent is ahead of the leader's orientation, force it to move behind
+                            const leaderPathThreshold = Math.PI / 3; // 30 degrees tolerance
+                            if (Math.abs(angleDifference) < leaderPathThreshold) {
+                                // Push the agent behind the leader
+                                const behindOffset = 50; // Distance to stay behind
+                                const behindTargetX = leader.position.x - Math.cos(leader.orientation) * behindOffset;
+                                const behindTargetY = leader.position.y - Math.sin(leader.orientation) * behindOffset;
+
+                                const steerToBehind = {
+                                    x: behindTargetX - this.position.x,
+                                    y: behindTargetY - this.position.y,
+                                };
+
+                                const magnitude = Math.sqrt(steerToBehind.x ** 2 + steerToBehind.y ** 2);
+                                if (magnitude > 0) {
+                                    steerToBehind.x = (steerToBehind.x / magnitude) * this.maxForce;
+                                    steerToBehind.y = (steerToBehind.y / magnitude) * this.maxForce;
+                                }
+
+                                this.applyForce(steerToBehind);
+                            } else {
+                                // Calculate trailing position based on index or distance
+                                const leaderOffset = 50; // Distance behind the leader
+                                const angleSpread = Math.PI / 6; // Spread angle for trailing agents
+                                const index = agents.indexOf(this);
+
+                                // Calculate desired trailing position
+                                const desiredAngle = leader.orientation + (index % 2 === 0 ? -1 : 1) * angleSpread * Math.floor(index / 2);
+                                const targetX = leader.position.x - Math.cos(desiredAngle) * leaderOffset * (index + 1);
+                                const targetY = leader.position.y - Math.sin(desiredAngle) * leaderOffset * (index + 1);
+
+                                // Calculate force toward trailing position
+                                const steer = {
+                                    x: targetX - this.position.x,
+                                    y: targetY - this.position.y,
+                                };
+
+                                const magnitude = Math.sqrt(steer.x ** 2 + steer.y ** 2);
+                                if (magnitude > 0) {
+                                    steer.x = (steer.x / magnitude) * this.maxForce;
+                                    steer.y = (steer.y / magnitude) * this.maxForce;
+                                }
+
+                                this.applyForce({
+                                    x: steer.x * followForceWeight,
+                                    y: steer.y * followForceWeight
+                                });
+                            }
+                        }
+                    } else {
+                        // Regular follow-the-leader behavior
+                        const followForce = this.followLeader(leader);
+
+                        this.orientation = Math.atan2(dy, dx); // Angle pointing toward the leader
+                        this.applyForce({
+                            x: followForce.x * followForceWeight,
+                            y: followForce.y * followForceWeight
+                        });
+                    }
+                }
+            }
+
+            avoidWalls() {
+                const repulsionRadius = 50; // Distance at which walls start repelling agents
+                const repulsionStrength = this.maxForce; // Use maxForce for scaling
+                let force = { x: 0, y: 0 };
+
+                // Left Wall
+                if (this.position.x < repulsionRadius) {
+                    force.x += (repulsionRadius - this.position.x) / repulsionRadius * repulsionStrength;
+                }
+
+                // Right Wall
+                if (this.position.x > this.canvasWidth - repulsionRadius) {
+                    force.x -= (this.position.x - (this.canvasWidth - repulsionRadius)) / repulsionRadius * repulsionStrength;
+                }
+
+                // Top Wall
+                if (this.position.y < repulsionRadius) {
+                    force.y += (repulsionRadius - this.position.y) / repulsionRadius * repulsionStrength;
+                }
+
+                // Bottom Wall
+                if (this.position.y > this.canvasHeight - repulsionRadius) {
+                    force.y -= (this.position.y - (this.canvasHeight - repulsionRadius)) / repulsionRadius * repulsionStrength;
+                }
+
+                return force;
+            }
+
+            followLeader(leader) {
+                const desiredSeparation = 50; // Adjust as needed
+                const steer = {
+                    x: leader.position.x - this.position.x,
+                    y: leader.position.y - this.position.y
+                };
+
+                const distance = Math.sqrt(steer.x ** 2 + steer.y ** 2);
+
+                if (distance < desiredSeparation) {
+                    // If too close, create a repulsive force
+                    steer.x = -steer.x;
+                    steer.y = -steer.y;
+                }
+
+                // Normalize and scale to maxForce
+                const magnitude = Math.sqrt(steer.x ** 2 + steer.y ** 2);
+                if (magnitude > 0) {
+                    steer.x = (steer.x / magnitude) * this.maxForce;
+                    steer.y = (steer.y / magnitude) * this.maxForce;
+                }
+
+                return steer;
+            }
+
+
+            // Update position and velocity
+            update() {
+
+                // Update perceptionRadius, maxSpeed, maxForce from sliders
+                this.perceptionRadius = parseFloat(perceptionSlider.value);
+                this.maxSpeed = parseFloat(maxSpeedSlider.value);
+                this.maxForce = parseFloat(maxForceSlider.value);
+                this.velocity.x += this.acceleration.x;
+                this.velocity.y += this.acceleration.y;
+
+                // Limit the velocity to the maximum speed
+                const speed = Math.sqrt(this.velocity.x ** 2 + this.velocity.y ** 2);
+                if (speed > this.maxSpeed) {
+                    this.velocity.x = (this.velocity.x / speed) * this.maxSpeed;
+                    this.velocity.y = (this.velocity.y / speed) * this.maxSpeed;
+                }
+
+                this.position.x += this.velocity.x;
+                this.position.y += this.velocity.y;
+
+                // Update orientation based on velocity
+                this.updateOrientation();
+
+                // Reset acceleration after each update
+                this.acceleration.x = 0;
+                this.acceleration.y = 0;
+            }
+
+            updateLedger(index) {
+                ledger.agents[index] = {
+                    position: { x: this.position.x, y: this.position.y },
+                    velocity: { x: this.velocity.x, y: this.velocity.y },
+                    orientation: Math.atan2(this.velocity.y, this.velocity.x)
+                };
+            }
+
+            // Update orientation based on velocity
+            updateOrientation() {
+                const targetOrientation = Math.atan2(this.velocity.y, this.velocity.x);
+                const angleDifference = targetOrientation - this.orientation;
+
+                // Normalize angleDifference to [-PI, PI]
+                const normalizedDifference = Math.atan2(
+                    Math.sin(angleDifference),
+                    Math.cos(angleDifference)
+                );
+
+                // Apply smoothing factor to avoid abrupt changes
+                const smoothingFactor = 0.1; // Adjust for smoothness
+                this.orientation += normalizedDifference * smoothingFactor;
+
+                // Normalize orientation to [-PI, PI]
+                this.orientation = Math.atan2(
+                    Math.sin(this.orientation),
+                    Math.cos(this.orientation)
+                );
+            }
+
+            calculateLocalRisk(agents, obstacles) {
+                let totalRisk = 0;
+                let nearbyAgents = 0;
+                let nearbyObstacles = 0;
+
+                // Evaluate nearby agents
+                agents.forEach(other => {
+                    if (other !== this) {
+                        const dx = this.position.x - other.position.x;
+                        const dy = this.position.y - other.position.y;
+                        const distance = Math.sqrt(dx ** 2 + dy ** 2);
+
+                        if (distance < this.perceptionRadius) {
+                            nearbyAgents++;
+                            const relativeVelocity = Math.sqrt(
+                                (this.velocity.x - other.velocity.x) ** 2 +
+                                (this.velocity.y - other.velocity.y) ** 2
+                            );
+
+                            // Risk contribution from agents
+                            totalRisk += (1 / distance) * 2.0 + relativeVelocity * 1.0;
+                        }
+                    }
+                });
+
+                // Evaluate nearby obstacles
+                ledger.obstacles.forEach(obstacle => {
+                    const dx = this.position.x - obstacle.x;
+                    const dy = this.position.y - obstacle.y;
+                    const distance = Math.sqrt(dx ** 2 + dy ** 2);
+
+                    if (distance < this.perceptionRadius) {
+                        nearbyObstacles++;
+                        const proximityFactor = (1 - distance / obstacle.sigma);
+
+                        // Risk contribution from obstacles
+                        totalRisk += (1 / distance) * 3.0 + proximityFactor * obstacle.amplitude * 2.0;
+                    }
+                });
+
+                // Normalize risk by total objects in the vicinity
+                const totalObjects = nearbyAgents + nearbyObstacles;
+                if (totalObjects > 0) {
+                    totalRisk /= totalObjects;
+                }
+
+                return {
+                    risk: totalRisk,
+                    agents: nearbyAgents,
+                    obstacles: nearbyObstacles
+                };
+            }
+
+
+        }
+
+        class Leader extends Agent {
+            constructor(x, y, canvasWidth, canvasHeight, color) {
+                super(x, y, canvasWidth, canvasHeight, color);
+                this.color = "blue";
+                this.isLeader = true; // You can use true/false instead of 1/0
+            }
+        }
+
+        const canvas = document.getElementById('swarmCanvas');
+        const context = canvas.getContext('2d');
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        const canvasWidth = canvas.width;
+        const canvasHeight = canvas.height;
+
+        const obstacles = [
+            { x: 150, y: 200, amplitude: 1.5, sigma: 50 },  // Example obstacle
+            { x: 400, y: 300, amplitude: 1.0, sigma: 70 },  // Another obstacle
+            { x: 600, y: 400, amplitude: 2.0, sigma: 30 }   // Smaller, sharper influence
+        ];
+
+
+        const leader = new Leader(Math.random() * canvasWidth, Math.random() * canvasHeight, canvasWidth, canvasHeight);
+
+        const agents = [leader];
+
+        // Initialize 9 more agents
+        for (let i = 0; i < 9; i++) {
+            agents.push(new Agent(Math.random() * canvasWidth, Math.random() * canvasHeight, canvasWidth, canvasHeight));
+        }
+
+        const ledger = {
+            agents: [], // Array to store all drones (agents)
+            obstacles: [] // Array to store all obstacle data
+        };
+
+        obstacles.forEach((obstacle, index) => {
+            ledger.obstacles[index] = {
+                position: { x: obstacle.x, y: obstacle.y },
+                amplitude: obstacle.amplitude,
+                sigma: obstacle.sigma
+            };
+        });
+
+        const showPerceptionCheckbox = document.getElementById('showPerceptionCheckbox');
+        const followTheLeaderCheckbox = document.getElementById('followTheLeaderCheckbox');
+        const formation1Checkbox = document.getElementById('formation1Checkbox');
+        const formation2Checkbox = document.getElementById('formation2Checkbox');
+
+        // Update displayed slider values
+        function updateSliderValues() {
+            separationValue.textContent = separationSlider.value;
+            alignmentValue.textContent = alignmentSlider.value;
+            cohesionValue.textContent = cohesionSlider.value;
+            perceptionValue.textContent = perceptionSlider.value;
+            maxSpeedValue.textContent = maxSpeedSlider.value;
+            maxForceValue.textContent = maxForceSlider.value;
+            wallAvoidanceValue.textContent = wallAvoidanceSlider.value;
+            obstacleAvoidanceValue.textContent = obstacleAvoidanceSlider.value;
+        }
+
+        // Add event listeners to sliders
+        separationSlider.addEventListener('input', updateSliderValues);
+        alignmentSlider.addEventListener('input', updateSliderValues);
+        cohesionSlider.addEventListener('input', updateSliderValues);
+        perceptionSlider.addEventListener('input', updateSliderValues);
+        maxSpeedSlider.addEventListener('input', updateSliderValues);
+        maxForceSlider.addEventListener('input', updateSliderValues);
+        wallAvoidanceSlider.addEventListener('input', updateSliderValues);
+        obstacleAvoidanceSlider.addEventListener('input', updateSliderValues);
+
+        // Initial update of slider values
+        updateSliderValues();
+
+
+        function calculateHighRiskZones() {
+            const riskZones = [];
+
+            ledger.obstacles.forEach(obstacle => {
+                let totalProximity = 0; // Sum of distances to agents
+                let totalVelocity = 0; // Sum of relative velocities
+                let agentCount = 0; // Number of agents in the risk zone
+
+                ledger.agents.forEach(agent => {
+                    const dx = agent.position.x - obstacle.position.x;
+                    const dy = agent.position.y - obstacle.position.y;
+                    const distance = Math.sqrt(dx ** 2 + dy ** 2);
+
+                    // Check if agent is within the obstacle's influence radius
+                    if (distance < obstacle.sigma) {
+                        agentCount++;
+                        totalProximity += distance;
+
+                        // Calculate relative velocity
+                        const relativeVelocity = Math.sqrt(
+                            agent.velocity.x ** 2 + agent.velocity.y ** 2
+                        );
+                        totalVelocity += relativeVelocity;
+                    }
+                });
+
+                if (agentCount > 0) {
+                    const avgProximity = totalProximity / agentCount;
+                    const avgVelocity = totalVelocity / agentCount;
+
+                    // Weights for risk factors
+                    const w_p = 2.0; // Weight for proximity
+                    const w_d = 1.5; // Weight for density
+                    const w_v = 1.0; // Weight for velocity
+
+                    // Calculate severity
+                    const severity = w_p * (1 / avgProximity) + w_d * agentCount + w_v * avgVelocity;
+
+                    // Add the risk zone with severity
+                    riskZones.push({
+                        x: obstacle.position.x,
+                        y: obstacle.position.y,
+                        radius: obstacle.sigma,
+                        severity: severity
+                    });
+                }
+            });
+
+            return riskZones;
+        }
+
+        function drawObstaclesWithGradient(context, obstacles) {
+            obstacles.forEach(obstacle => {
+                // Create radial gradient
+                const gradient = context.createRadialGradient(
+                    obstacle.x, obstacle.y, 0,
+                    obstacle.x, obstacle.y, obstacle.sigma
+                );
+                gradient.addColorStop(0, 'rgba(255, 0, 0, 0.5)');  // Strong influence
+                gradient.addColorStop(1, 'rgba(255, 0, 0, 0)');    // Fades out
+
+                // Draw the influence area
+                context.beginPath();
+                context.arc(obstacle.x, obstacle.y, obstacle.sigma, 0, Math.PI * 2);
+                context.fillStyle = gradient;
+                context.fill();
+
+                // Draw the obstacle core
+                context.beginPath();
+                context.arc(obstacle.x, obstacle.y, 10, 0, Math.PI * 2);
+                context.fillStyle = 'red';
+                context.fill();
+            });
+        }
+
+        // Animation loop
+        function animate() {
+            // console.log(calculateHighRiskZones())
+            context.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (searchRevealCheckbox.checked) drawSugarCube(context);
+
+            agents.forEach((agent, index) => {
+                agent.flock(agents, obstacles); // Apply flocking behaviors
+                agent.update();     // Update position and velocity
+                agent.updateLedger(index); // Update ledger with agent state
+
+                if (showOrientationCheckbox.checked) drawOrientation(context, agent);
+                if (showFOVCheckbox.checked) {
+                    if (!agent.isLeader || !followTheLeaderCheckbox.checked) drawFieldOfView(context, agent); // Draw the field of view cone
+                }
+
+
+                // Draw the obstacles
+                drawObstaclesWithGradient(context, obstacles);
+
+                // Draw the agent
+                context.beginPath();
+                context.fillStyle = agent.color;
+                context.arc(agent.position.x, agent.position.y, 3, 0, Math.PI * 2);
+                context.fill();
+
+                // Draw perception radius if checkbox is checked
+                if (showPerceptionCheckbox.checked) {
+                    context.beginPath();
+                    context.strokeStyle = 'rgba(255, 255, 255, 0.5)'; // Semi-transparent white
+                    context.lineWidth = 1;
+                    context.setLineDash([5, 5]); // Dotted line: 5px dash, 5px gap
+                    context.arc(agent.position.x, agent.position.y, agent.perceptionRadius, 0, Math.PI * 2);
+                    context.stroke();
+                    context.setLineDash([]); // Reset line dash
+                }
+            });
+
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+
+        function drawOrientation(context, agent) {
+            const arrowLength = 5; // Length of the orientation arrow
+            const arrowX = agent.position.x + Math.cos(agent.orientation) * arrowLength;
+            const arrowY = agent.position.y + Math.sin(agent.orientation) * arrowLength;
+
+            context.beginPath();
+            context.moveTo(agent.position.x, agent.position.y);
+            context.lineTo(arrowX, arrowY);
+            context.strokeStyle = 'white';
+            context.lineWidth = 1;
+            context.stroke();
+        }
+
+        let sugarCube = { x: Math.random() * canvasWidth, y: Math.random() * canvasHeight };
+
+        function drawSugarCube(context) {
+            context.fillStyle = "white";
+            context.fillRect(sugarCube.x, sugarCube.y, 10, 10);
+        }
+
+
+    </script>
 </body>
 
 </html>
