@@ -89,9 +89,9 @@
 
 <body>
     <canvas id="swarmCanvas"></canvas>
-    <div id="title">DROID-RAID Proof of Concept v2.2</div>
+    <div id="title">DROID-RAID Proof of Concept v2.21</div>
     <details id="controlPanel">
-        <summary>Boid Parameters</summary>
+        <summary>Agent Parameters</summary>
         <label>
             Separation Weight: <span id="separationValue">1.5</span>
             <input type="range" id="separationSlider" min="0" max="5" step="0.1" value="1.5">
@@ -155,10 +155,10 @@
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
 
-            // Update canvas dimensions in each boid
-            boids.forEach(boid => {
-                boid.canvasWidth = canvas.width;
-                boid.canvasHeight = canvas.height;
+            // Update canvas dimensions in each agent
+            agents.forEach(agent => {
+                agent.canvasWidth = canvas.width;
+                agent.canvasHeight = canvas.height;
             });
         });
 
@@ -171,13 +171,13 @@
                 formation2Checkbox.checked = false;
 
                 // Activate PSO-ACO mode
-                boids.forEach(boid => {
-                    boid.inSearchMode = true;
+                agents.forEach(agent => {
+                    agent.inSearchMode = true;
                 });
             } else {
                 // Return to default behavior
-                boids.forEach(boid => {
-                    boid.inSearchMode = false;
+                agents.forEach(agent => {
+                    agent.inSearchMode = false;
                 });
             }
         });
@@ -202,10 +202,10 @@
         const wallAvoidanceValue = document.getElementById('wallAvoidanceValue');
         const obstacleAvoidanceValue = document.getElementById('obstacleAvoidanceValue');
 
-        class Boid {
+        class Agent {
             constructor(x, y, canvasWidth, canvasHeight) {
                 this.color = "green"; // color
-                this.position = { x, y }; // Boid's current position
+                this.position = { x, y }; // Agent's current position
                 this.velocity = { x: Math.random() * 2 - 1, y: Math.random() * 2 - 1 }; // Random initial velocity
                 this.acceleration = { x: 0, y: 0 }; // Acceleration vector
                 this.orientation = Math.atan2(this.velocity.y, this.velocity.x); // Initial orientation
@@ -217,18 +217,18 @@
                 this.canvasHeight = canvasHeight;
             }
 
-            // Add a force to the boid's acceleration
+            // Add a force to the agent's acceleration
             applyForce(force) {
                 this.acceleration.x += force.x;
                 this.acceleration.y += force.y;
             }
 
-            separation(boids) {
-                const desiredSeparation = 25.0; // Minimum desired separation between boids
+            separation(agents) {
+                const desiredSeparation = 25.0; // Minimum desired separation between agents
                 const steer = { x: 0, y: 0 };
                 let total = 0;
 
-                boids.forEach(other => {
+                agents.forEach(other => {
                     const dx = this.position.x - other.position.x;
                     const dy = this.position.y - other.position.y;
                     const distance = Math.sqrt(dx * dx + dy * dy);
@@ -262,11 +262,11 @@
             }
 
 
-            alignment(boids) {
+            alignment(agents) {
                 const steer = { x: 0, y: 0 };
                 let total = 0;
 
-                boids.forEach(other => {
+                agents.forEach(other => {
                     const distance = Math.sqrt(
                         (this.position.x - other.position.x) ** 2 +
                         (this.position.y - other.position.y) ** 2
@@ -296,11 +296,11 @@
                 return steer;
             }
 
-            cohesion(boids) {
+            cohesion(agents) {
                 const steer = { x: 0, y: 0 };
                 let total = 0;
 
-                boids.forEach(other => {
+                agents.forEach(other => {
                     const distance = Math.sqrt(
                         (this.position.x - other.position.x) ** 2 +
                         (this.position.y - other.position.y) ** 2
@@ -444,11 +444,11 @@
                     if (formation1Checkbox.checked) {
                         if (formation2Checkbox.checked) {
                             const radius = 50; // Desired radius of the circle around the leader
-                            const angleStep = (2 * Math.PI) / (boids.length - 1); // Angle step for even spacing
+                            const angleStep = (2 * Math.PI) / (agents.length - 1); // Angle step for even spacing
 
                             // Calculate all target positions on the circle
                             const targetPositions = [];
-                            for (let i = 0; i < boids.length - 1; i++) {
+                            for (let i = 0; i < agents.length - 1; i++) {
                                 const angle = angleStep * i;
                                 targetPositions.push({
                                     x: leader.position.x + Math.cos(angle) * radius,
@@ -456,7 +456,7 @@
                                 });
                             }
 
-                            // Find the closest target position to this boid
+                            // Find the closest target position to this agent
                             let closestTargetIndex = -1;
                             let closestDistance = Infinity;
                             targetPositions.forEach((target, index) => {
@@ -470,7 +470,7 @@
                                 }
                             });
 
-                            // Assign this boid to the closest target and mark it as taken
+                            // Assign this agent to the closest target and mark it as taken
                             const target = targetPositions[closestTargetIndex];
 
                             // Compute steering force to move toward the closest target position
@@ -488,17 +488,17 @@
 
                             this.applyForce(steer);
                         } else {
-                            // Compute angle between the boid and the leader's path
+                            // Compute angle between the agent and the leader's path
                             const angleToLeader = Math.atan2(dy, dx);
                             const angleDifference = Math.atan2(
                                 Math.sin(angleToLeader - leader.orientation),
                                 Math.cos(angleToLeader - leader.orientation)
                             );
 
-                            // If the boid is ahead of the leader's orientation, force it to move behind
+                            // If the agent is ahead of the leader's orientation, force it to move behind
                             const leaderPathThreshold = Math.PI / 3; // 30 degrees tolerance
                             if (Math.abs(angleDifference) < leaderPathThreshold) {
-                                // Push the boid behind the leader
+                                // Push the agent behind the leader
                                 const behindOffset = 50; // Distance to stay behind
                                 const behindTargetX = leader.position.x - Math.cos(leader.orientation) * behindOffset;
                                 const behindTargetY = leader.position.y - Math.sin(leader.orientation) * behindOffset;
@@ -518,8 +518,8 @@
                             } else {
                                 // Calculate trailing position based on index or distance
                                 const leaderOffset = 50; // Distance behind the leader
-                                const angleSpread = Math.PI / 6; // Spread angle for trailing boids
-                                const index = boids.indexOf(this);
+                                const angleSpread = Math.PI / 6; // Spread angle for trailing agents
+                                const index = agents.indexOf(this);
 
                                 // Calculate desired trailing position
                                 const desiredAngle = leader.orientation + (index % 2 === 0 ? -1 : 1) * angleSpread * Math.floor(index / 2);
@@ -558,7 +558,7 @@
             }
 
             avoidWalls() {
-                const repulsionRadius = 50; // Distance at which walls start repelling boids
+                const repulsionRadius = 50; // Distance at which walls start repelling agents
                 const repulsionStrength = this.maxForce; // Use maxForce for scaling
                 let force = { x: 0, y: 0 };
 
@@ -640,7 +640,7 @@
             }
 
             updateLedger(index) {
-                ledger.boids[index] = {
+                ledger.agents[index] = {
                     position: { x: this.position.x, y: this.position.y },
                     velocity: { x: this.velocity.x, y: this.velocity.y },
                     orientation: Math.atan2(this.velocity.y, this.velocity.x)
@@ -725,7 +725,7 @@
 
         }
 
-        class Leader extends Boid {
+        class Leader extends Agent {
             constructor(x, y, canvasWidth, canvasHeight, color) {
                 super(x, y, canvasWidth, canvasHeight, color);
                 this.color = "blue";
@@ -749,15 +749,15 @@
 
         const leader = new Leader(Math.random() * canvasWidth, Math.random() * canvasHeight, canvasWidth, canvasHeight);
 
-        const boids = [leader];
+        const agents = [leader];
 
-        // Initialize 9 more boids
+        // Initialize 9 more agents
         for (let i = 0; i < 9; i++) {
-            boids.push(new Boid(Math.random() * canvasWidth, Math.random() * canvasHeight, canvasWidth, canvasHeight));
+            agents.push(new Agent(Math.random() * canvasWidth, Math.random() * canvasHeight, canvasWidth, canvasHeight));
         }
 
         const ledger = {
-            boids: [], // Array to store all drones (boids)
+            agents: [], // Array to store all drones (agents)
             obstacles: [] // Array to store all obstacle data
         };
 
@@ -804,31 +804,31 @@
             const riskZones = [];
 
             ledger.obstacles.forEach(obstacle => {
-                let totalProximity = 0; // Sum of distances to boids
+                let totalProximity = 0; // Sum of distances to agents
                 let totalVelocity = 0; // Sum of relative velocities
-                let boidCount = 0; // Number of boids in the risk zone
+                let agentCount = 0; // Number of agents in the risk zone
 
-                ledger.boids.forEach(boid => {
-                    const dx = boid.position.x - obstacle.position.x;
-                    const dy = boid.position.y - obstacle.position.y;
+                ledger.agents.forEach(agent => {
+                    const dx = agent.position.x - obstacle.position.x;
+                    const dy = agent.position.y - obstacle.position.y;
                     const distance = Math.sqrt(dx ** 2 + dy ** 2);
 
-                    // Check if boid is within the obstacle's influence radius
+                    // Check if agent is within the obstacle's influence radius
                     if (distance < obstacle.sigma) {
-                        boidCount++;
+                        agentCount++;
                         totalProximity += distance;
 
                         // Calculate relative velocity
                         const relativeVelocity = Math.sqrt(
-                            boid.velocity.x ** 2 + boid.velocity.y ** 2
+                            agent.velocity.x ** 2 + agent.velocity.y ** 2
                         );
                         totalVelocity += relativeVelocity;
                     }
                 });
 
-                if (boidCount > 0) {
-                    const avgProximity = totalProximity / boidCount;
-                    const avgVelocity = totalVelocity / boidCount;
+                if (agentCount > 0) {
+                    const avgProximity = totalProximity / agentCount;
+                    const avgVelocity = totalVelocity / agentCount;
 
                     // Weights for risk factors
                     const w_p = 2.0; // Weight for proximity
@@ -836,7 +836,7 @@
                     const w_v = 1.0; // Weight for velocity
 
                     // Calculate severity
-                    const severity = w_p * (1 / avgProximity) + w_d * boidCount + w_v * avgVelocity;
+                    const severity = w_p * (1 / avgProximity) + w_d * agentCount + w_v * avgVelocity;
 
                     // Add the risk zone with severity
                     riskZones.push({
@@ -880,21 +880,21 @@
             // console.log(calculateHighRiskZones())
             context.clearRect(0, 0, canvas.width, canvas.height);
 
-            boids.forEach((boid, index) => {
-                boid.flock(boids, obstacles); // Apply flocking behaviors
-                boid.update();     // Update position and velocity
-                boid.updateLedger(index); // Update ledger with boid state
+            agents.forEach((agent, index) => {
+                agent.flock(agents, obstacles); // Apply flocking behaviors
+                agent.update();     // Update position and velocity
+                agent.updateLedger(index); // Update ledger with agent state
 
-                drawOrientation(context, boid);
+                drawOrientation(context, agent);
 
 
                 // Draw the obstacles
                 drawObstaclesWithGradient(context, obstacles);
 
-                // Draw the boid
+                // Draw the agent
                 context.beginPath();
-                context.fillStyle = boid.color;
-                context.arc(boid.position.x, boid.position.y, 3, 0, Math.PI * 2);
+                context.fillStyle = agent.color;
+                context.arc(agent.position.x, agent.position.y, 3, 0, Math.PI * 2);
                 context.fill();
 
                 // Draw perception radius if checkbox is checked
@@ -903,7 +903,7 @@
                     context.strokeStyle = 'rgba(255, 255, 255, 0.5)'; // Semi-transparent white
                     context.lineWidth = 1;
                     context.setLineDash([5, 5]); // Dotted line: 5px dash, 5px gap
-                    context.arc(boid.position.x, boid.position.y, boid.perceptionRadius, 0, Math.PI * 2);
+                    context.arc(agent.position.x, agent.position.y, agent.perceptionRadius, 0, Math.PI * 2);
                     context.stroke();
                     context.setLineDash([]); // Reset line dash
                 }
