@@ -57,16 +57,20 @@
         }
 
         #controlPanel>* {
-            padding: 10px;
+            padding: 5px;
         }
 
         #controlPanel label {
             display: block;
-            margin-top: 10px;
+            /* margin-top: 10px; */
         }
 
         #controlPanel input[type="range"] {
             width: 100%;
+        }
+
+        details {
+            padding: .8em;
         }
 
         #title {
@@ -89,7 +93,7 @@
 
 <body>
     <canvas id="swarmCanvas"></canvas>
-    <div id="title">DROID-RAID Proof of Concept v2.21</div>
+    <div id="title">DROID-RAID Proof of Concept v2.3</div>
     <details id="controlPanel">
         <summary>Agent Parameters</summary>
         <label>
@@ -129,6 +133,14 @@
             Show Perception Radius
         </label>
         <label>
+            <input type="checkbox" id="showOrientationCheckbox" checked>
+            Show Orientation
+        </label>
+        <label>
+            <input type="checkbox" id="showFOVCheckbox" checked>
+            Show FOV
+        </label>
+        <label>
             <input type="checkbox" id="followTheLeaderCheckbox" checked>
             Pursue<!-- Follow The Leader -->
         </label>
@@ -147,9 +159,42 @@
 
     </details>
     <script>
-        function handleChecked(e) {
-            console.log()
+        function drawFieldOfView(context, agent) {
+            const fovAngle = Math.PI / 4; // 90-degree FoV
+            const perceptionRadius = agent.perceptionRadius; // Use the agent's perception radius for the cone length
+
+            // Calculate the boundary angles
+            const leftBoundary = agent.orientation - fovAngle;
+            const rightBoundary = agent.orientation + fovAngle;
+
+            // Calculate the end points of the boundaries
+            const leftX = agent.position.x + Math.cos(leftBoundary) * perceptionRadius;
+            const leftY = agent.position.y + Math.sin(leftBoundary) * perceptionRadius;
+
+            const rightX = agent.position.x + Math.cos(rightBoundary) * perceptionRadius;
+            const rightY = agent.position.y + Math.sin(rightBoundary) * perceptionRadius;
+
+            // Create a radial gradient
+            const gradient = context.createRadialGradient(
+                agent.position.x, agent.position.y, 0, // Inner circle (agent's position)
+                agent.position.x, agent.position.y, perceptionRadius // Outer circle
+            );
+            gradient.addColorStop(0, 'rgba(0, 255, 0, 0.38)'); // Fully visible near the agent
+            gradient.addColorStop(1, 'rgba(0, 255, 0, 0)');   // Fully transparent at the edge
+
+            // Draw the cone
+            context.beginPath();
+            context.moveTo(agent.position.x, agent.position.y); // Start at the agent's position
+            context.lineTo(leftX, leftY); // Draw to the left boundary
+            context.lineTo(rightX, rightY); // Draw to the right boundary
+            context.closePath(); // Close the triangle
+
+            // Fill the cone with the gradient
+            context.fillStyle = gradient;
+            context.fill();
         }
+
+
 
         window.addEventListener('resize', () => {
             canvas.width = window.innerWidth;
@@ -163,6 +208,8 @@
         });
 
         const searchRevealCheckbox = document.getElementById('searchRevealCheckbox');
+        const showFOVCheckbox = document.getElementById('showFOVCheckbox');
+        const showOrientationCheckbox = document.getElementById('showOrientationCheckbox');
 
         searchRevealCheckbox.addEventListener('change', () => {
             if (searchRevealCheckbox.checked) {
@@ -880,12 +927,17 @@
             // console.log(calculateHighRiskZones())
             context.clearRect(0, 0, canvas.width, canvas.height);
 
+            if (searchRevealCheckbox.checked) drawSugarCube(context);
+
             agents.forEach((agent, index) => {
                 agent.flock(agents, obstacles); // Apply flocking behaviors
                 agent.update();     // Update position and velocity
                 agent.updateLedger(index); // Update ledger with agent state
 
-                drawOrientation(context, agent);
+                if (showOrientationCheckbox.checked) drawOrientation(context, agent);
+                if (showFOVCheckbox.checked) {
+                    if (!agent.isLeader || !followTheLeaderCheckbox.checked) drawFieldOfView(context, agent); // Draw the field of view cone
+                }
 
 
                 // Draw the obstacles
