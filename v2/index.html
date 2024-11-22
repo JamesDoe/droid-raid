@@ -89,7 +89,7 @@
 
 <body>
     <canvas id="swarmCanvas"></canvas>
-    <div id="title">DROID-RAID Proof of Concept v2.12</div>
+    <div id="title">DROID-RAID Proof of Concept v2.2</div>
     <details id="controlPanel">
         <summary>Boid Parameters</summary>
         <label>
@@ -130,16 +130,21 @@
         </label>
         <label>
             <input type="checkbox" id="followTheLeaderCheckbox" checked>
-            Follow The Leader
+            Pursue<!-- Follow The Leader -->
         </label>
         <label>
             <input onChange="if(!this.checked)formation2Checkbox.checked=false" type="checkbox" id="formation1Checkbox">
-            Maintain Formation
+            Follow<!-- Maintain Formation -->
         </label>
         <label>
             <input type="checkbox" id="formation2Checkbox">
-            Circular Formation
+            Protect<!-- Circular Formation -->
         </label>
+        <label>
+            <input type="checkbox" id="searchRevealCheckbox">
+            Search and Reveal (PSO-ACO Mode)
+        </label>
+
     </details>
     <script>
         function handleChecked(e) {
@@ -156,6 +161,27 @@
                 boid.canvasHeight = canvas.height;
             });
         });
+
+        const searchRevealCheckbox = document.getElementById('searchRevealCheckbox');
+
+        searchRevealCheckbox.addEventListener('change', () => {
+            if (searchRevealCheckbox.checked) {
+                followTheLeaderCheckbox.checked = false;
+                formation1Checkbox.checked = false;
+                formation2Checkbox.checked = false;
+
+                // Activate PSO-ACO mode
+                boids.forEach(boid => {
+                    boid.inSearchMode = true;
+                });
+            } else {
+                // Return to default behavior
+                boids.forEach(boid => {
+                    boid.inSearchMode = false;
+                });
+            }
+        });
+
 
         // Get references to the sliders and value displays
         const separationSlider = document.getElementById('separationSlider');
@@ -899,6 +925,13 @@
             context.strokeStyle = 'white';
             context.lineWidth = 1;
             context.stroke();
+        }
+
+        let sugarCube = { x: Math.random() * canvasWidth, y: Math.random() * canvasHeight };
+
+        function drawSugarCube(context) {
+            context.fillStyle = "white";
+            context.fillRect(sugarCube.x, sugarCube.y, 10, 10);
         }
 
 
