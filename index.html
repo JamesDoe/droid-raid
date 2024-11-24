@@ -93,7 +93,7 @@
 
 <body>
     <canvas id="swarmCanvas"></canvas>
-    <div id="title">DROID-RAID Proof of Concept v2.31</div>
+    <div id="title">DROID-RAID Proof of Concept v2.4</div>
     <details id="controlPanel">
         <summary>Agent Parameters</summary>
         <label>
@@ -196,7 +196,11 @@
 
         function initializeSearchMission() {
             // Randomize target
-            sugarCube = { x: Math.random() * canvasWidth, y: Math.random() * canvasHeight }
+            sugarCube = { position: { x: Math.random() * canvasWidth, y: Math.random() * canvasHeight } };
+            sugarCubeReported = false;
+
+            // Reset pheromone map
+            pheromoneMap.length = 0;
         };
 
         window.addEventListener('resize', () => {
@@ -221,6 +225,15 @@
                 formation2Checkbox.checked = false;
 
                 initializeSearchMission();
+
+                // agents.forEach(agent => {
+                //     if (!agent.isLeader && isInFieldOfView(agent, sugarCube)) {
+                //         isSugarCubeInFOV = true;
+                //     }
+                // });
+
+                // Change the sugar cube's color based on the FoV check
+                drawSugarCube(context, isSugarCubeInFOV);
 
                 // Activate PSO-ACO mode
                 agents.forEach(agent => {
@@ -466,6 +479,34 @@
                 if (followTheLeaderCheckbox.checked && this.isLeader && !formation2Checkbox.checked) {
 
                 } else {
+                    if (searchRevealCheckbox.checked) {
+                        if (sugarCubeReported) {
+                            // Move directly to the sugar cube
+                            const dx = sugarCube.position.x - this.position.x;
+                            const dy = sugarCube.position.y - this.position.y;
+                            const distance = Math.sqrt(dx ** 2 + dy ** 2);
+
+                            const force = {
+                                x: (dx / distance) * this.maxForce,
+                                y: (dy / distance) * this.maxForce
+                            };
+                            this.applyForce(force);
+                            this.applyForce({
+                                x: obstacleAvoidanceForce.x * parseFloat(obstacleAvoidanceSlider.value),
+                                y: obstacleAvoidanceForce.y * parseFloat(obstacleAvoidanceSlider.value)
+                            });
+
+                            this.applyForce({
+                                x: wallAvoidanceForce.x * wallAvoidanceWeight,
+                                y: wallAvoidanceForce.y * wallAvoidanceWeight
+                            });
+
+                            // Update orientation to face the sugar cube
+                            this.orientation = Math.atan2(dy, dx);
+
+                            return; // Skip other behaviors
+                        }
+                    }
                     const alignmentForce = this.alignment(agents);
                     const cohesionForce = this.cohesion(agents);
                     this.applyForce({
@@ -927,32 +968,38 @@
             });
         }
 
+        let isSugarCubeInFOV;
+        let sugarCubeReported = false;
+
         // Animation loop
         function animate() {
-            // console.log(calculateHighRiskZones())
             context.clearRect(0, 0, canvas.width, canvas.height);
 
-            if (searchRevealCheckbox.checked) drawSugarCube(context);
+            isSugarCubeInFOV = false;
 
+            // Iterate through agents to check if sugar cube is in FoV
             agents.forEach((agent, index) => {
                 agent.flock(agents, obstacles); // Apply flocking behaviors
-                agent.update();     // Update position and velocity
+                agent.update(); // Update position and velocity
                 agent.updateLedger(index); // Update ledger with agent state
 
-                if (showOrientationCheckbox.checked) drawOrientation(context, agent);
-                if (showFOVCheckbox.checked) {
-                    if (!agent.isLeader || !followTheLeaderCheckbox.checked) drawFieldOfView(context, agent); // Draw the field of view cone
+                if (searchRevealCheckbox.checked) {
+                    addPheromone(agent.position.x, agent.position.y);
+                    // Check if the sugar cube is in this agent's field of view
+                    if (!isSugarCubeInFOV && isInFieldOfView(agent, sugarCube)) {
+                        isSugarCubeInFOV = true;
+                        sugarCubeReported = true;
+                    }
                 }
-
-
-                // Draw the obstacles
-                drawObstaclesWithGradient(context, obstacles);
 
                 // Draw the agent
                 context.beginPath();
                 context.fillStyle = agent.color;
                 context.arc(agent.position.x, agent.position.y, 3, 0, Math.PI * 2);
                 context.fill();
+
+                // Draw orientation marker if checkbox is checked
+                if (showOrientationCheckbox.checked) drawOrientation(context, agent);
 
                 // Draw perception radius if checkbox is checked
                 if (showPerceptionCheckbox.checked) {
@@ -964,9 +1011,31 @@
                     context.stroke();
                     context.setLineDash([]); // Reset line dash
                 }
+
+                // Draw field of view if enabled
+                if (showFOVCheckbox.checked && (!agent.isLeader || !followTheLeaderCheckbox.checked)) {
+                    drawFieldOfView(context, agent);
+                    // drawFieldOfViewDebug(context, agent);
+                }
             });
 
+            // Draw the sugar cube with the updated "seen" state
+            if (searchRevealCheckbox.checked) {
+                // Update pheromone map for decay and removal
+                updatePheromoneMap();
+                drawPheromoneMap(context);
+                drawSugarCube(context, isSugarCubeInFOV);
+            }
+
+            // Draw the obstacles
+            drawObstaclesWithGradient(context, obstacles);
+
             requestAnimationFrame(animate);
+        }
+
+        function drawSugarCube(context, isRed) {
+            context.fillStyle = isRed ? "red" : "white"; // Turn red if in FoV
+            context.fillRect(sugarCube.position.x, sugarCube.position.y, 10, 10);
         }
 
         animate();
@@ -984,11 +1053,170 @@
             context.stroke();
         }
 
-        let sugarCube = { x: Math.random() * canvasWidth, y: Math.random() * canvasHeight };
+        let sugarCube = { position: { x: Math.random() * canvasWidth, y: Math.random() * canvasHeight } };
 
-        function drawSugarCube(context) {
-            context.fillStyle = "white";
-            context.fillRect(sugarCube.x, sugarCube.y, 10, 10);
+        function isInFieldOfView(agent, object) {
+            const fovAngle = Math.PI / 4; // 90-degree FoV
+            const perceptionRadius = agent.perceptionRadius;
+
+            // Calculate the vector to the object
+            const dx = object.position.x - agent.position.x;
+            const dy = object.position.y - agent.position.y;
+            const distance = Math.sqrt(dx ** 2 + dy ** 2);
+
+            // Check if the object is within the perception radius
+            if (distance >= perceptionRadius) {
+                return false;
+            }
+
+            // Calculate the boundary angles
+            const leftBoundary = agent.orientation - fovAngle;
+            const rightBoundary = agent.orientation + fovAngle;
+
+            // Calculate the angle to the object relative to the agent's orientation
+            const angleToObject = Math.atan2(dy, dx);
+
+            // Normalize the angles for comparison
+            const normalizeAngle = (angle) =>
+                (angle + 2 * Math.PI) % (2 * Math.PI); // Normalize to [0, 2π)
+
+            const normalizedAngleToObject = normalizeAngle(angleToObject);
+            const normalizedLeftBoundary = normalizeAngle(leftBoundary);
+            const normalizedRightBoundary = normalizeAngle(rightBoundary);
+
+            // Check if the angle to the object is within the FoV boundaries
+            if (normalizedLeftBoundary < normalizedRightBoundary) {
+                return (
+                    normalizedLeftBoundary <= normalizedAngleToObject &&
+                    normalizedAngleToObject <= normalizedRightBoundary
+                );
+            } else {
+                // Handles the case where the FoV wraps around 0 radians
+                return (
+                    normalizedAngleToObject >= normalizedLeftBoundary ||
+                    normalizedAngleToObject <= normalizedRightBoundary
+                );
+            }
+        }
+
+
+
+        function drawFieldOfViewDebug(context, agent) {
+            const fovAngle = Math.PI / 4; // 90-degree FoV
+            const perceptionRadius = agent.perceptionRadius; // Use the agent's perception radius for the cone length
+
+            // Calculate the boundary angles
+            const leftBoundary = agent.orientation - fovAngle;
+            const rightBoundary = agent.orientation + fovAngle;
+
+            // Calculate the end points of the boundaries
+            const leftX = agent.position.x + Math.cos(leftBoundary) * perceptionRadius;
+            const leftY = agent.position.y + Math.sin(leftBoundary) * perceptionRadius;
+
+            const rightX = agent.position.x + Math.cos(rightBoundary) * perceptionRadius;
+            const rightY = agent.position.y + Math.sin(rightBoundary) * perceptionRadius;
+
+            // Draw the FoV triangle
+            context.beginPath();
+            context.moveTo(agent.position.x, agent.position.y); // Start at the agent's position
+            context.lineTo(leftX, leftY); // Draw to the left boundary
+            context.lineTo(rightX, rightY); // Draw to the right boundary
+            context.closePath(); // Close the triangle
+
+            // Fill the triangle
+            context.fillStyle = 'rgba(0, 255, 0, 0.2)'; // Semi-transparent green
+            context.fill();
+
+            // Draw the boundary lines
+            context.strokeStyle = 'rgba(0, 255, 0, 0.5)';
+            context.lineWidth = 1;
+            context.stroke();
+        }
+
+        const pheromoneMap = []; // Array to store RBFs
+
+        function addPheromone(x, y, contribution = 1) {
+            const radius = 50; // Radius of influence
+            const maxLifetime = 10000; // Maximum lifetime in milliseconds (10 seconds)
+            const now = performance.now(); // Current high-precision time
+
+            // Calculate new expiration time
+            const newExpirationTime = now + maxLifetime * contribution;
+
+            // Find existing pheromone within the radius
+            let pheromone = pheromoneMap.find(p => {
+                const dx = p.x - x;
+                const dy = p.y - y;
+                return Math.sqrt(dx ** 2 + dy ** 2) < radius;
+            });
+
+            if (pheromone) {
+                // Reinforce existing pheromone
+                pheromone.intensity = Math.min(
+                    1.0, // Max intensity
+                    pheromone.intensity + contribution
+                );
+
+                // Update the expiration time
+                pheromone.expirationTime = Math.max(pheromone.expirationTime, newExpirationTime);
+            } else {
+                // Add a new pheromone
+                pheromoneMap.push({
+                    x,
+                    y,
+                    radius,
+                    intensity: contribution,
+                    expirationTime: newExpirationTime
+                });
+            }
+        }
+
+        let lastUpdateTime = performance.now();
+
+        function updatePheromoneMap() {
+            const now = performance.now(); // Current time
+            const decayInterval = 16.67; // Approx. time per frame at 60 FPS (in ms)
+            // const baseDecayRate = 0.99; // Base decay rate per frame
+            const baseDecayRate = 1; // Base decay rate per frame
+            const intensityDecayFactor = 0.05; // Reduction in decay rate per unit intensity
+
+            for (let i = pheromoneMap.length - 1; i >= 0; i--) {
+                const pheromone = pheromoneMap[i];
+
+                // Adjust decay rate based on intensity
+                const adjustedDecayRate = Math.max(
+                    baseDecayRate - pheromone.intensity * intensityDecayFactor,
+                    0.95 // Ensure a minimum decay rate
+                );
+
+                // Apply adjusted decay
+                pheromone.intensity *= Math.pow(adjustedDecayRate, (now - lastUpdateTime) / decayInterval);
+
+                // Remove expired pheromones
+                if (now >= pheromone.expirationTime || pheromone.intensity < 0.01) {
+                    pheromoneMap.splice(i, 1);
+                }
+            }
+
+            lastUpdateTime = now;
+        }
+
+
+
+        function drawPheromoneMap(context) {
+            pheromoneMap.forEach(({ x, y, radius, intensity }) => {
+                const gradient = context.createRadialGradient(x, y, 0, x, y, radius);
+                const unexploredColor = `rgba(0, 255, 255, 1)`; // Aqua for unexplored
+                // const exploredColor = `rgba(255, 0, 255, ${intensity})`; // Fuschia for explored
+
+                gradient.addColorStop(0, unexploredColor);
+                gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+
+                context.beginPath();
+                context.arc(x, y, radius, 0, Math.PI * 2);
+                context.fillStyle = gradient;
+                context.fill();
+            });
         }
 
 
