@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ACO with Boids Parameters</title>
+    <style>
+        body {
+            /* display: flex; */
+            /* justify-content: center; */
+            /* align-items: center; */
+            height: 100vh;
+            margin: 0;
+            background-color: #f4f4f4;
+        }
+
+        canvas {
+            border: 1px solid black;
+        }
+    </style>
+</head>
+
+<body>
+    <div style="width: 400px; margin: auto;">
+        <div><canvas id="myCanvas" width="400" height="400"></canvas></div>
+        <div class="controls">
+            <div class="slider-container">
+                <label>
+                    Separation Weight: <span id="separationValue">2</span>
+                    <input type="range" id="separationSlider" min="0" max="5" step="0.1" value="2">
+                </label>
+            </div>
+            <div class="slider-container">
+                <label>
+                    Alignment Weight: <span id="alignmentValue">0.5</span>
+                    <input id="alignmentSlider" type="range" min="0" max="5" step="0.1" value="0.5">
+                </label>
+            </div>
+            <div class="slider-container">
+                <label>
+                    Cohesion Weight: <span id="cohesionValue">0.005</span>
+                    <input id="cohesionSlider" type="range" min="0.001" max=".01" step="0.001" value="0.005">
+                </label>
+            </div>
+            <div class="slider-container">
+                <label>
+                    Exploration Randomness: <span id="randomnessValue">0.02</span>
+                    <input id="randomnessSlider" type="range" min="0" max="1" step="0.01" value="0.02">
+
+                </label>
+                <div class="slider-container">
+                    <label>
+                        Attraction Weight: <span id="attractionValue">0.7</span>
+                        <input id="attractionSlider" type="range" min=".1" max="2" step="0.1" value=".7">
+                    </label>
+                </div>
+            </div>
+        </div>
+</body>
+<script>
+    const canvas = document.getElementById('myCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // Canvas dimensions and pheromone grid
+    const canvasWidth = canvas.width;
+    const canvasHeight = canvas.height;
+    const gridSize = 5; // Size of each cell in the pheromone grid
+    const rows = Math.ceil(canvasHeight / gridSize);
+    const cols = Math.ceil(canvasWidth / gridSize);
+    const pheromoneGrid = Array.from({ length: rows }, () => Array(cols).fill(0));
+    const pheromoneDecayRate = 0.001;
+    const maxPheromoneIntensity = 1.0;
+
+    // Particle properties
+    const particleCount = 12;
+    const particleSize = 2;
+    const fovRadius = 30;
+    const neighborRadius = 20; // Radius to consider neighbors for Boids behaviors
+    const particles = [];
+
+    // Initialize particles
+    for (let i = 0; i < particleCount; i++) {
+        particles.push({
+            x: Math.random() * canvasWidth,
+            y: Math.random() * canvasHeight,
+            dx: (Math.random() - 0.5) * 2,
+            dy: (Math.random() - 0.5) * 2
+        });
+    }
+
+    // Parameters for Boids behaviors
+    let separationWeight = 2.0;
+    let alignmentWeight = .05;
+    let cohesionWeight = .005;
+    let attractionWeight = 0.75; // ACO attraction weight
+    let explorationRandomness = 0.015; // Path randomness weight
+
+    // Update parameter values from sliders
+    document.getElementById('separationSlider').addEventListener('input', (e) => {
+        separationWeight = parseFloat(e.target.value);
+        updateSliderValues();
+    });
+    document.getElementById('alignmentSlider').addEventListener('input', (e) => {
+        alignmentWeight = parseFloat(e.target.value);
+        updateSliderValues();
+    });
+    document.getElementById('cohesionSlider').addEventListener('input', (e) => {
+        cohesionWeight = parseFloat(e.target.value);
+        updateSliderValues();
+    });
+    document.getElementById('attractionSlider').addEventListener('input', (e) => {
+        attractionWeight = parseFloat(e.target.value);
+        updateSliderValues();
+    });
+    document.getElementById('randomnessSlider').addEventListener('input', (e) => {
+        explorationRandomness = parseFloat(e.target.value);
+        updateSliderValues();
+    });
+
+    // Update displayed slider values
+    function updateSliderValues() {
+        separationValue.textContent = separationSlider.value;
+        alignmentValue.textContent = alignmentSlider.value;
+        cohesionValue.textContent = cohesionSlider.value;
+        attractionValue.textContent = attractionSlider.value;
+        randomnessValue.textContent = randomnessSlider.value;
+    }
+
+    // Generate a gradient color based on intensity
+    function getColor(intensity) {
+        const normalized = intensity / maxPheromoneIntensity;
+        const r = Math.floor(255 * normalized);
+        const g = Math.floor(255 * (1 - normalized));
+        const b = 0;
+        const alpha = Math.min(1, normalized);
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    }
+
+    // Draw pheromone heatmap
+    function drawHeatmap() {
+        for (let y = 0; y < rows; y++) {
+            for (let x = 0; x < cols; x++) {
+                const intensity = pheromoneGrid[y][x];
+                if (intensity > 0) {
+                    ctx.fillStyle = getColor(intensity);
+                    ctx.fillRect(x * gridSize, y * gridSize, gridSize, gridSize);
+                }
+            }
+        }
+    }
+
+    // Update pheromone grid based on agent FoV
+    function updatePheromones() {
+        for (const particle of particles) {
+            for (let y = -fovRadius; y <= fovRadius; y++) {
+                for (let x = -fovRadius; x <= fovRadius; x++) {
+                    const dist = Math.sqrt(x * x + y * y);
+                    if (dist <= fovRadius) {
+                        const gridX = Math.floor((particle.x + x) / gridSize);
+                        const gridY = Math.floor((particle.y + y) / gridSize);
+                        if (gridX >= 0 && gridX < cols && gridY >= 0 && gridY < rows) {
+                            pheromoneGrid[gridY][gridX] = Math.min(
+                                maxPheromoneIntensity,
+                                pheromoneGrid[gridY][gridX] + 0.001
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        // Evaporate pheromones
+        for (let y = 0; y < rows; y++) {
+            for (let x = 0; x < cols; x++) {
+                pheromoneGrid[y][x] = Math.max(0, pheromoneGrid[y][x] - pheromoneDecayRate);
+            }
+        }
+    }
+
+    // Update particle positions with boundary checks and clamping
+    function updateParticles() {
+        particles.forEach(particle => {
+            // Find neighbors
+            const neighbors = particles.filter(
+                neighbor =>
+                    Math.hypot(particle.x - neighbor.x, particle.y - neighbor.y) < neighborRadius
+            );
+
+            // Apply Boids behaviors and attraction to unexplored areas
+            calculateBoidsForces(particle, neighbors);
+            calculateAttraction(particle);
+
+            // Update position
+            particle.x += particle.dx;
+            particle.y += particle.dy;
+
+            // Normalize speed to avoid extreme velocity
+            const speed = Math.sqrt(particle.dx * particle.dx + particle.dy * particle.dy);
+            const maxSpeed = 2;
+            if (speed > maxSpeed) {
+                particle.dx = (particle.dx / speed) * maxSpeed;
+                particle.dy = (particle.dy / speed) * maxSpeed;
+            }
+
+            // Clamp position to keep within canvas bounds
+            particle.x = Math.max(0, Math.min(canvasWidth, particle.x));
+            particle.y = Math.max(0, Math.min(canvasHeight, particle.y));
+
+            // Reflect velocity if touching boundary
+            if (particle.x === 0 || particle.x === canvasWidth) particle.dx *= -1;
+            if (particle.y === 0 || particle.y === canvasHeight) particle.dy *= -1;
+        });
+    }
+
+    // Limit separation force magnitude in Boids forces
+    function calculateBoidsForces(particle, neighbors) {
+        let separationX = 0,
+            separationY = 0;
+        let alignmentX = 0,
+            alignmentY = 0;
+        let cohesionX = 0,
+            cohesionY = 0;
+        let count = 0;
+
+        neighbors.forEach(neighbor => {
+            const dx = particle.x - neighbor.x;
+            const dy = particle.y - neighbor.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            if (dist > 0 && dist < neighborRadius) {
+                // Separation: Avoid collisions, limit force magnitude
+                const separationForce = Math.min(1 / dist, 0.5); // Cap maximum force
+                separationX += (dx / dist) * separationForce;
+                separationY += (dy / dist) * separationForce;
+
+                // Alignment: Match velocity
+                alignmentX += neighbor.dx;
+                alignmentY += neighbor.dy;
+
+                // Cohesion: Move toward the center of neighbors
+                cohesionX += neighbor.x;
+                cohesionY += neighbor.y;
+
+                count++;
+            }
+        });
+
+        if (count > 0) {
+            separationX /= count;
+            separationY /= count;
+
+            alignmentX /= count;
+            alignmentY /= count;
+
+            cohesionX = cohesionX / count - particle.x;
+            cohesionY = cohesionY / count - particle.y;
+        }
+
+        // // Combine forces with weights
+        // particle.dx += separationX * separationWeight + alignmentX * alignmentWeight + cohesionX * cohesionWeight;
+        // particle.dy += separationY * separationWeight + alignmentY * alignmentWeight + cohesionY * cohesionWeight;
+
+        // Add randomness for exploration
+        const randomAngle = Math.random() * 2 * Math.PI;
+        const randomForceX = Math.cos(randomAngle) * explorationRandomness;
+        const randomForceY = Math.sin(randomAngle) * explorationRandomness;
+
+        // Combine forces with exploration weights
+        particle.dx +=
+            separationX * separationWeight +
+            alignmentX * alignmentWeight +
+            cohesionX * cohesionWeight +
+            randomForceX;
+
+        particle.dy +=
+            separationY * separationWeight +
+            alignmentY * alignmentWeight +
+            cohesionY * cohesionWeight +
+            randomForceY;
+    }
+
+    // Calculate attraction force inversely to pheromone intensity
+    function calculateAttraction(particle) {
+        const gridX = Math.floor(particle.x / gridSize);
+        const gridY = Math.floor(particle.y / gridSize);
+
+        if (gridX >= 0 && gridX < cols && gridY >= 0 && gridY < rows) {
+            const intensity = pheromoneGrid[gridY][gridX];
+            const attractionStrength = 1 - intensity; // Higher attraction to lower-intensity areas
+
+            // Scale movement toward low-intensity areas
+            particle.dx += (Math.random() - 0.5) * attractionStrength * attractionWeight;
+            particle.dy += (Math.random() - 0.5) * attractionStrength * attractionWeight;
+        }
+    }
+
+    // Draw particles
+    function drawParticles() {
+        ctx.fillStyle = 'blue';
+        particles.forEach(particle => {
+            ctx.beginPath();
+            ctx.arc(particle.x, particle.y, particleSize, 0, Math.PI * 2);
+            ctx.fill();
+        });
+    }
+
+
+    // Animation loop
+    function animate() {
+        ctx.clearRect(0, 0, canvasWidth, canvasHeight); // Clear canvas
+        updatePheromones(); // Update pheromone grid
+        drawHeatmap(); // Draw pheromone heatmap
+        drawParticles(); // Draw particles
+        updateParticles(); // Update particle positions
+        requestAnimationFrame(animate); // Loop
+    }
+
+    // Start animation
+    animate();
+</script>
+
+</html>
