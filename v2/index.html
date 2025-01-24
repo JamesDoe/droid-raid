@@ -93,7 +93,7 @@
 
 <body>
     <canvas id="swarmCanvas"></canvas>
-    <div id="title">DROID-RAID Proof of Concept v2.4</div>
+    <div id="title">DROID-RAID Proof of Concept v2.41</div>
     <details id="controlPanel">
         <summary>Agent Parameters</summary>
         <label>
@@ -825,6 +825,40 @@
                 this.isLeader = true; // You can use true/false instead of 1/0
             }
         }
+
+// Listen for keydown events to control the leader
+window.addEventListener('keydown', (event) => {
+    if (!followTheLeaderCheckbox.checked) return; // Only active in "Follow" mode
+
+    const speed = 5; // Speed of movement for the leader
+    switch (event.key) {
+        case 'ArrowUp': // Move up
+            leader.velocity.y -= speed;
+            break;
+        case 'ArrowDown': // Move down
+            leader.velocity.y += speed;
+            break;
+        case 'ArrowLeft': // Move left
+            leader.velocity.x -= speed;
+            break;
+        case 'ArrowRight': // Move right
+            leader.velocity.x += speed;
+            break;
+        default:
+            return; // Ignore other keys
+    }
+
+    // Normalize velocity to prevent exceeding max speed
+    const magnitude = Math.sqrt(leader.velocity.x ** 2 + leader.velocity.y ** 2);
+    if (magnitude > leader.maxSpeed) {
+        leader.velocity.x = (leader.velocity.x / magnitude) * leader.maxSpeed;
+        leader.velocity.y = (leader.velocity.y / magnitude) * leader.maxSpeed;
+    }
+
+    // Prevent default scrolling behavior for arrow keys
+    event.preventDefault();
+});
+
 
         const canvas = document.getElementById('swarmCanvas');
         const context = canvas.getContext('2d');
