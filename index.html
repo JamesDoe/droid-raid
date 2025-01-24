@@ -93,7 +93,7 @@
 
 <body>
     <canvas id="swarmCanvas"></canvas>
-    <div id="title">DROID-RAID Proof of Concept v2.5</div>
+    <div id="title">DROID-RAID Proof of Concept v2.4</div>
     <details id="controlPanel">
         <summary>Agent Parameters</summary>
         <label>
@@ -1024,19 +1024,20 @@
             let drawWidth, drawHeight, offsetX, offsetY;
 
             if (canvasAspectRatio > imageAspectRatio) {
-                // Canvas is wider relative to the image
+                // Canvas is wider than the image
                 drawWidth = canvas.width;
                 drawHeight = canvas.width / imageAspectRatio;
-                offsetX = 0;
+                offsetX = 0; // No horizontal offset
                 offsetY = (canvas.height - drawHeight) / 2; // Center vertically
             } else {
-                // Canvas is taller relative to the image
+                // Canvas is taller than the image
                 drawWidth = canvas.height * imageAspectRatio;
                 drawHeight = canvas.height;
                 offsetX = (canvas.width - drawWidth) / 2; // Center horizontally
-                offsetY = 0;
+                offsetY = 0; // No vertical offset
             }
-            context.drawImage(backgroundImage, 0, 0, canvas.width, canvas.height);
+
+            context.drawImage(backgroundImage, offsetX, offsetY, drawWidth, drawHeight);
 
             isSugarCubeInFOV = false;
 
