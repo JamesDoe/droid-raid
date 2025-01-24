@@ -93,7 +93,7 @@
 
 <body>
     <canvas id="swarmCanvas"></canvas>
-    <div id="title">DROID-RAID Proof of Concept v2.41</div>
+    <div id="title">DROID-RAID Proof of Concept v2.4</div>
     <details id="controlPanel">
         <summary>Agent Parameters</summary>
         <label>
@@ -159,6 +159,9 @@
 
     </details>
     <script>
+
+        let Target = null;
+
         function drawFieldOfView(context, agent) {
             const fovAngle = Math.PI / 4; // 90-degree FoV
             const perceptionRadius = agent.perceptionRadius; // Use the agent's perception radius for the cone length
@@ -476,49 +479,49 @@
                     y: separationForce.y * parseFloat(separationSlider.value)
                 });
 
-                if (followTheLeaderCheckbox.checked && this.isLeader && !formation2Checkbox.checked) {
+                // if (followTheLeaderCheckbox.checked && this.isLeader && !formation2Checkbox.checked) {
 
-                } else {
-                    if (searchRevealCheckbox.checked) {
-                        if (sugarCubeReported) {
-                            // Move directly to the sugar cube
-                            const dx = sugarCube.position.x - this.position.x;
-                            const dy = sugarCube.position.y - this.position.y;
-                            const distance = Math.sqrt(dx ** 2 + dy ** 2);
+                // } else {
+                //     if (searchRevealCheckbox.checked) {
+                if (Target) {
+                    // Move directly to the sugar cube
+                    const dx = Target.x - this.position.x;
+                    const dy = Target.y - this.position.y;
+                    const distance = Math.sqrt(dx ** 2 + dy ** 2);
 
-                            const force = {
-                                x: (dx / distance) * this.maxForce,
-                                y: (dy / distance) * this.maxForce
-                            };
-                            this.applyForce(force);
-                            this.applyForce({
-                                x: obstacleAvoidanceForce.x * parseFloat(obstacleAvoidanceSlider.value),
-                                y: obstacleAvoidanceForce.y * parseFloat(obstacleAvoidanceSlider.value)
-                            });
-
-                            this.applyForce({
-                                x: wallAvoidanceForce.x * wallAvoidanceWeight,
-                                y: wallAvoidanceForce.y * wallAvoidanceWeight
-                            });
-
-                            // Update orientation to face the sugar cube
-                            this.orientation = Math.atan2(dy, dx);
-
-                            return; // Skip other behaviors
-                        }
-                    }
-                    const alignmentForce = this.alignment(agents);
-                    const cohesionForce = this.cohesion(agents);
+                    const force = {
+                        x: (dx / distance) * this.maxForce,
+                        y: (dy / distance) * this.maxForce
+                    };
+                    this.applyForce(force);
                     this.applyForce({
-                        x: alignmentForce.x * alignmentWeight,
-                        y: alignmentForce.y * alignmentWeight
+                        x: obstacleAvoidanceForce.x * parseFloat(obstacleAvoidanceSlider.value),
+                        y: obstacleAvoidanceForce.y * parseFloat(obstacleAvoidanceSlider.value)
                     });
 
                     this.applyForce({
-                        x: cohesionForce.x * cohesionWeight,
-                        y: cohesionForce.y * cohesionWeight
+                        x: wallAvoidanceForce.x * wallAvoidanceWeight,
+                        y: wallAvoidanceForce.y * wallAvoidanceWeight
                     });
+
+                    // Update orientation to face the sugar cube
+                    this.orientation = Math.atan2(dy, dx);
+
+                    return; // Skip other behaviors
                 }
+                // }
+                const alignmentForce = this.alignment(agents);
+                const cohesionForce = this.cohesion(agents);
+                this.applyForce({
+                    x: alignmentForce.x * alignmentWeight,
+                    y: alignmentForce.y * alignmentWeight
+                });
+
+                this.applyForce({
+                    x: cohesionForce.x * cohesionWeight,
+                    y: cohesionForce.y * cohesionWeight
+                });
+                // }
 
                 this.applyForce({
                     x: obstacleAvoidanceForce.x * parseFloat(obstacleAvoidanceSlider.value),
@@ -826,38 +829,38 @@
             }
         }
 
-// Listen for keydown events to control the leader
-window.addEventListener('keydown', (event) => {
-    if (!followTheLeaderCheckbox.checked) return; // Only active in "Follow" mode
+        // Listen for keydown events to control the leader
+        window.addEventListener('keydown', (event) => {
+            if (!followTheLeaderCheckbox.checked) return; // Only active in "Follow" mode
 
-    const speed = 5; // Speed of movement for the leader
-    switch (event.key) {
-        case 'ArrowUp': // Move up
-            leader.velocity.y -= speed;
-            break;
-        case 'ArrowDown': // Move down
-            leader.velocity.y += speed;
-            break;
-        case 'ArrowLeft': // Move left
-            leader.velocity.x -= speed;
-            break;
-        case 'ArrowRight': // Move right
-            leader.velocity.x += speed;
-            break;
-        default:
-            return; // Ignore other keys
-    }
+            const speed = 5; // Speed of movement for the leader
+            switch (event.key) {
+                case 'ArrowUp': // Move up
+                    leader.velocity.y -= speed;
+                    break;
+                case 'ArrowDown': // Move down
+                    leader.velocity.y += speed;
+                    break;
+                case 'ArrowLeft': // Move left
+                    leader.velocity.x -= speed;
+                    break;
+                case 'ArrowRight': // Move right
+                    leader.velocity.x += speed;
+                    break;
+                default:
+                    return; // Ignore other keys
+            }
 
-    // Normalize velocity to prevent exceeding max speed
-    const magnitude = Math.sqrt(leader.velocity.x ** 2 + leader.velocity.y ** 2);
-    if (magnitude > leader.maxSpeed) {
-        leader.velocity.x = (leader.velocity.x / magnitude) * leader.maxSpeed;
-        leader.velocity.y = (leader.velocity.y / magnitude) * leader.maxSpeed;
-    }
+            // Normalize velocity to prevent exceeding max speed
+            const magnitude = Math.sqrt(leader.velocity.x ** 2 + leader.velocity.y ** 2);
+            if (magnitude > leader.maxSpeed) {
+                leader.velocity.x = (leader.velocity.x / magnitude) * leader.maxSpeed;
+                leader.velocity.y = (leader.velocity.y / magnitude) * leader.maxSpeed;
+            }
 
-    // Prevent default scrolling behavior for arrow keys
-    event.preventDefault();
-});
+            // Prevent default scrolling behavior for arrow keys
+            event.preventDefault();
+        });
 
 
         const canvas = document.getElementById('swarmCanvas');
@@ -866,6 +869,12 @@ window.addEventListener('keydown', (event) => {
         canvas.height = window.innerHeight;
         const canvasWidth = canvas.width;
         const canvasHeight = canvas.height;
+
+        // Create a new image object
+        const backgroundImage = new Image();
+
+        // Set the source of the image
+        backgroundImage.src = 'EOD_Range_Snap.jpg'; // Replace with the path to your image
 
         const obstacles = [
             { x: 150, y: 200, amplitude: 1.5, sigma: 50 },  // Example obstacle
@@ -1007,9 +1016,32 @@ window.addEventListener('keydown', (event) => {
 
         // Animation loop
         function animate() {
+
             context.clearRect(0, 0, canvas.width, canvas.height);
+            const canvasAspectRatio = canvas.width / canvas.height;
+            const imageAspectRatio = backgroundImage.width / backgroundImage.height;
+
+            let drawWidth, drawHeight, offsetX, offsetY;
+
+            if (canvasAspectRatio > imageAspectRatio) {
+                // Canvas is wider relative to the image
+                drawWidth = canvas.width;
+                drawHeight = canvas.width / imageAspectRatio;
+                offsetX = 0;
+                offsetY = (canvas.height - drawHeight) / 2; // Center vertically
+            } else {
+                // Canvas is taller relative to the image
+                drawWidth = canvas.height * imageAspectRatio;
+                drawHeight = canvas.height;
+                offsetX = (canvas.width - drawWidth) / 2; // Center horizontally
+                offsetY = 0;
+            }
+            context.drawImage(backgroundImage, 0, 0, canvas.width, canvas.height);
 
             isSugarCubeInFOV = false;
+
+            if (Target) drawTarget(context);
+
 
             // Iterate through agents to check if sugar cube is in FoV
             agents.forEach((agent, index) => {
@@ -1026,11 +1058,27 @@ window.addEventListener('keydown', (event) => {
                     }
                 }
 
-                // Draw the agent
-                context.beginPath();
-                context.fillStyle = agent.color;
-                context.arc(agent.position.x, agent.position.y, 3, 0, Math.PI * 2);
-                context.fill();
+
+                // // Draw the agent
+                // context.beginPath();
+                // context.fillStyle = agent.color;
+                // context.arc(agent.position.x, agent.position.y, 3, 0, Math.PI * 2);
+                // context.fill();
+
+                const symbol = new Image();
+                if (!Target && followTheLeaderCheckbox.checked && agent.isLeader) {
+                    symbol.src = './air.hostile.png';
+                } else {
+                    symbol.src = './air.friend.png';
+                }
+                // Draw the symbol at the agent's position
+                context.drawImage(
+                    symbol,
+                    agent.position.x - 5, // Adjust for symbol size
+                    agent.position.y - 6,
+                    10, // Symbol width
+                    12  // Symbol height
+                );
 
                 // Draw orientation marker if checkbox is checked
                 if (showOrientationCheckbox.checked) drawOrientation(context, agent);
@@ -1254,6 +1302,30 @@ window.addEventListener('keydown', (event) => {
         }
 
 
+        canvas.addEventListener('click', (event) => {
+            const rect = canvas.getBoundingClientRect();
+            Target = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+        });
+
+        function drawTarget(context) {
+            if (Target) {
+                // context.beginPath();
+                // context.arc(Target.x, Target.y, 10, 0, Math.PI * 2);
+                // context.strokeStyle = 'red';
+                // context.lineWidth = 2;
+                // context.stroke();
+                const symbol = new Image();
+                symbol.src = './land.hostile.png';
+                // Draw the symbol at the agent's position
+                context.drawImage(
+                    symbol,
+                    Target.x - 10, // Adjust for symbol size
+                    Target.y - 10,
+                    20, // Symbol width
+                    20  // Symbol height
+                );
+            }
+        }
     </script>
 </body>
 
