@@ -1,0 +1,1332 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DROID-RAID Swarm Simulation with Global Optimization</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #000;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        /* Existing styles */
+
+        #controlPanel {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            max-width: 250px;
+            background: rgba(255, 255, 255, 0.8);
+            padding: 0;
+            border-radius: 8px;
+            z-index: 10;
+            font-family: Arial, sans-serif;
+            color: #000;
+        }
+
+        #controlPanel summary {
+            list-style: none;
+            padding: 10px;
+            cursor: pointer;
+            font-weight: bold;
+            background-color: #f0f0f0;
+            margin: 0;
+            border-radius: 8px;
+        }
+
+        #controlPanel summary::-webkit-details-marker {
+            display: none;
+        }
+
+        #controlPanel summary::after {
+            content: '▼';
+            float: right;
+            font-size: 12px;
+        }
+
+        #controlPanel[open] summary::after {
+            content: '▲';
+        }
+
+        #controlPanel>* {
+            padding: 5px;
+        }
+
+        #controlPanel label {
+            display: block;
+            /* margin-top: 10px; */
+        }
+
+        #controlPanel input[type="range"] {
+            width: 100%;
+        }
+
+        details {
+            padding: .8em;
+        }
+
+        #title {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            color: white;
+            font-family: Arial, sans-serif;
+            font-size: 18px;
+            font-weight: bold;
+            z-index: 15;
+            /* Ensure it appears above other elements */
+            background-color: rgba(0, 0, 0, 0.5);
+            /* Optional: Semi-transparent background for readability */
+            padding: 5px 10px;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="swarmCanvas"></canvas>
+    <div id="title">DROID-RAID Proof of Concept v2.4</div>
+    <details id="controlPanel">
+        <summary>Agent Parameters</summary>
+        <label>
+            Separation Weight: <span id="separationValue">1.5</span>
+            <input type="range" id="separationSlider" min="0" max="5" step="0.1" value="1.5">
+        </label>
+        <label>
+            Alignment Weight: <span id="alignmentValue">1.0</span>
+            <input type="range" id="alignmentSlider" min="0" max="5" step="0.1" value="1.0">
+        </label>
+        <label>
+            Cohesion Weight: <span id="cohesionValue">1.0</span>
+            <input type="range" id="cohesionSlider" min="0" max="2" step="0.1" value="1.0">
+        </label>
+        <label>
+            Perception Radius: <span id="perceptionValue">50</span>
+            <input type="range" id="perceptionSlider" min="10" max="200" step="1" value="50">
+        </label>
+        <label>
+            Wall Avoidance Weight: <span id="wallAvoidanceValue">10.0</span>
+            <input type="range" id="wallAvoidanceSlider" min="0.1" max="10" step="0.1" value="10.0">
+        </label>
+        <label>
+            Obstacle Avoidance Weight: <span id="obstacleAvoidanceValue">10.0</span>
+            <input type="range" id="obstacleAvoidanceSlider" min="0.1" max="10" step="0.1" value="10.0">
+        </label>
+        <label>
+            Maximum Speed: <span id="maxSpeedValue">4</span>
+            <input type="range" id="maxSpeedSlider" min="1" max="10" step="0.1" value="4">
+        </label>
+        <label>
+            Maximum Force: <span id="maxForceValue">0.2</span>
+            <input type="range" id="maxForceSlider" min="0.01" max="2" step="0.01" value="0.2">
+        </label>
+        <label>
+            <input type="checkbox" id="showPerceptionCheckbox" checked>
+            Show Perception Radius
+        </label>
+        <label>
+            <input type="checkbox" id="showOrientationCheckbox" checked>
+            Show Orientation
+        </label>
+        <label>
+            <input type="checkbox" id="showFOVCheckbox" checked>
+            Show FOV
+        </label>
+        <label>
+            <input type="checkbox" id="followTheLeaderCheckbox" checked>
+            Pursue<!-- Follow The Leader -->
+        </label>
+        <label>
+            <input onChange="if(!this.checked)formation2Checkbox.checked=false" type="checkbox" id="formation1Checkbox">
+            Follow<!-- Maintain Formation -->
+        </label>
+        <label>
+            <input onChange="if(this.checked)formation1Checkbox.checked=true" type="checkbox" id="formation2Checkbox">
+            Protect<!-- Circular Formation -->
+        </label>
+        <label>
+            <input type="checkbox" id="searchRevealCheckbox">
+            Search and Reveal (PSO-ACO Mode)
+        </label>
+
+    </details>
+    <script>
+
+        let Target = null;
+
+        function drawFieldOfView(context, agent) {
+            const fovAngle = Math.PI / 4; // 90-degree FoV
+            const perceptionRadius = agent.perceptionRadius; // Use the agent's perception radius for the cone length
+
+            // Calculate the boundary angles
+            const leftBoundary = agent.orientation - fovAngle;
+            const rightBoundary = agent.orientation + fovAngle;
+
+            // Calculate the end points of the boundaries
+            const leftX = agent.position.x + Math.cos(leftBoundary) * perceptionRadius;
+            const leftY = agent.position.y + Math.sin(leftBoundary) * perceptionRadius;
+
+            const rightX = agent.position.x + Math.cos(rightBoundary) * perceptionRadius;
+            const rightY = agent.position.y + Math.sin(rightBoundary) * perceptionRadius;
+
+            // Create a radial gradient
+            const gradient = context.createRadialGradient(
+                agent.position.x, agent.position.y, 0, // Inner circle (agent's position)
+                agent.position.x, agent.position.y, perceptionRadius // Outer circle
+            );
+            gradient.addColorStop(0, 'rgba(0, 255, 0, 0.38)'); // Fully visible near the agent
+            gradient.addColorStop(1, 'rgba(0, 255, 0, 0)');   // Fully transparent at the edge
+
+            // Draw the cone
+            context.beginPath();
+            context.moveTo(agent.position.x, agent.position.y); // Start at the agent's position
+            context.lineTo(leftX, leftY); // Draw to the left boundary
+            context.lineTo(rightX, rightY); // Draw to the right boundary
+            context.closePath(); // Close the triangle
+
+            // Fill the cone with the gradient
+            context.fillStyle = gradient;
+            context.fill();
+        }
+
+        function initializeSearchMission() {
+            // Randomize target
+            sugarCube = { position: { x: Math.random() * canvasWidth, y: Math.random() * canvasHeight } };
+            sugarCubeReported = false;
+
+            // Reset pheromone map
+            pheromoneMap.length = 0;
+        };
+
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+
+            // Update canvas dimensions in each agent
+            agents.forEach(agent => {
+                agent.canvasWidth = canvas.width;
+                agent.canvasHeight = canvas.height;
+            });
+        });
+
+        const searchRevealCheckbox = document.getElementById('searchRevealCheckbox');
+        const showFOVCheckbox = document.getElementById('showFOVCheckbox');
+        const showOrientationCheckbox = document.getElementById('showOrientationCheckbox');
+
+        searchRevealCheckbox.addEventListener('change', () => {
+            if (searchRevealCheckbox.checked) {
+                followTheLeaderCheckbox.checked = false;
+                formation1Checkbox.checked = false;
+                formation2Checkbox.checked = false;
+
+                initializeSearchMission();
+
+                // agents.forEach(agent => {
+                //     if (!agent.isLeader && isInFieldOfView(agent, sugarCube)) {
+                //         isSugarCubeInFOV = true;
+                //     }
+                // });
+
+                // Change the sugar cube's color based on the FoV check
+                drawSugarCube(context, isSugarCubeInFOV);
+
+                // Activate PSO-ACO mode
+                agents.forEach(agent => {
+                    agent.inSearchMode = true;
+                });
+            } else {
+                // Return to default behavior
+                agents.forEach(agent => {
+                    agent.inSearchMode = false;
+                });
+            }
+        });
+
+
+        // Get references to the sliders and value displays
+        const separationSlider = document.getElementById('separationSlider');
+        const alignmentSlider = document.getElementById('alignmentSlider');
+        const cohesionSlider = document.getElementById('cohesionSlider');
+        const perceptionSlider = document.getElementById('perceptionSlider');
+        const maxSpeedSlider = document.getElementById('maxSpeedSlider');
+        const maxForceSlider = document.getElementById('maxForceSlider');
+        const wallAvoidanceSlider = document.getElementById('wallAvoidanceSlider');
+        const obstacleAvoidanceSlider = document.getElementById('obstacleAvoidanceSlider');
+
+        const separationValue = document.getElementById('separationValue');
+        const alignmentValue = document.getElementById('alignmentValue');
+        const cohesionValue = document.getElementById('cohesionValue');
+        const perceptionValue = document.getElementById('perceptionValue');
+        const maxSpeedValue = document.getElementById('maxSpeedValue');
+        const maxForceValue = document.getElementById('maxForceValue');
+        const wallAvoidanceValue = document.getElementById('wallAvoidanceValue');
+        const obstacleAvoidanceValue = document.getElementById('obstacleAvoidanceValue');
+
+        class Agent {
+            constructor(x, y, canvasWidth, canvasHeight) {
+                this.color = "green"; // color
+                this.position = { x, y }; // Agent's current position
+                this.velocity = { x: Math.random() * 2 - 1, y: Math.random() * 2 - 1 }; // Random initial velocity
+                this.acceleration = { x: 0, y: 0 }; // Acceleration vector
+                this.orientation = Math.atan2(this.velocity.y, this.velocity.x); // Initial orientation
+                this.perceptionRadius = 50; // Radius to detect neighbors
+                this.perceptionBufferFactor = 1.0618;
+                this.maxSpeed = 4; // Maximum speed
+                this.maxForce = 0.1; // Maximum steering force
+                this.canvasWidth = canvasWidth;
+                this.canvasHeight = canvasHeight;
+            }
+
+            // Add a force to the agent's acceleration
+            applyForce(force) {
+                this.acceleration.x += force.x;
+                this.acceleration.y += force.y;
+            }
+
+            separation(agents) {
+                const desiredSeparation = 25.0; // Minimum desired separation between agents
+                const steer = { x: 0, y: 0 };
+                let total = 0;
+
+                agents.forEach(other => {
+                    const dx = this.position.x - other.position.x;
+                    const dy = this.position.y - other.position.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+
+                    if (other !== this && distance > 0 && distance < desiredSeparation) {
+                        // Calculate vector pointing away from neighbor, weighted by distance
+                        const diff = {
+                            x: dx / (distance * distance),
+                            y: dy / (distance * distance)
+                        };
+                        steer.x += diff.x;
+                        steer.y += diff.y;
+                        total++;
+                    }
+                });
+
+                if (total > 0) {
+                    // Average the steering force
+                    steer.x /= total;
+                    steer.y /= total;
+
+                    // Normalize and scale to maxForce
+                    const magnitude = Math.sqrt(steer.x * steer.x + steer.y * steer.y);
+                    if (magnitude > 0) {
+                        steer.x = (steer.x / magnitude) * this.maxForce;
+                        steer.y = (steer.y / magnitude) * this.maxForce;
+                    }
+                }
+
+                return steer;
+            }
+
+
+            alignment(agents) {
+                const steer = { x: 0, y: 0 };
+                let total = 0;
+
+                agents.forEach(other => {
+                    const distance = Math.sqrt(
+                        (this.position.x - other.position.x) ** 2 +
+                        (this.position.y - other.position.y) ** 2
+                    );
+
+                    if (other !== this && distance < this.perceptionRadius) {
+                        steer.x += other.velocity.x;
+                        steer.y += other.velocity.y;
+                        steer.x += Math.cos(other.orientation); // Use neighbor's orientation
+                        steer.y += Math.sin(other.orientation);
+                        total++;
+                    }
+                });
+
+                if (total > 0) {
+                    steer.x /= total;
+                    steer.y /= total;
+
+                    // Normalize and scale to maxForce
+                    const magnitude = Math.sqrt(steer.x ** 2 + steer.y ** 2);
+                    if (magnitude > 0) {
+                        steer.x = (steer.x / magnitude) * this.maxForce;
+                        steer.y = (steer.y / magnitude) * this.maxForce;
+                    }
+                }
+
+                return steer;
+            }
+
+            cohesion(agents) {
+                const steer = { x: 0, y: 0 };
+                let total = 0;
+
+                agents.forEach(other => {
+                    const distance = Math.sqrt(
+                        (this.position.x - other.position.x) ** 2 +
+                        (this.position.y - other.position.y) ** 2
+                    );
+
+                    if (other !== this && distance < this.perceptionRadius) {
+                        steer.x += other.position.x;
+                        steer.y += other.position.y;
+                        total++;
+                    }
+                });
+
+                if (total > 0) {
+                    steer.x /= total;
+                    steer.y /= total;
+
+                    // Steer toward the average position
+                    steer.x = steer.x - this.position.x;
+                    steer.y = steer.y - this.position.y;
+
+                    // Normalize and scale to maxForce
+                    const magnitude = Math.sqrt(steer.x ** 2 + steer.y ** 2);
+                    if (magnitude > 0) {
+                        steer.x = (steer.x / magnitude) * this.maxForce;
+                        steer.y = (steer.y / magnitude) * this.maxForce;
+                    }
+                }
+
+                return steer;
+            }
+
+            avoidObstacles(obstacles) {
+                const steer = { x: 0, y: 0 };
+                let imminentCollision = false;
+
+                obstacles.forEach(obstacle => {
+                    const dx = this.position.x - obstacle.x;
+                    const dy = this.position.y - obstacle.y;
+                    const distance = Math.sqrt(dx ** 2 + dy ** 2);
+
+                    if (distance < (this.perceptionRadius * this.perceptionBufferFactor)) {
+                        // Compute Gaussian influence
+                        const influence = obstacle.amplitude * Math.exp(-((distance ** 2) / (2 * obstacle.sigma ** 2)));
+
+                        // Define critical threshold
+                        const criticalThreshold = 0.38 * obstacle.amplitude;
+
+                        if (influence > criticalThreshold) {
+                            // Imminent collision detected
+                            imminentCollision = true;
+
+                            // Apply hard repulsion
+                            steer.x += (dx / distance) * this.maxForce * 8;
+                            steer.y += (dy / distance) * this.maxForce * 8;
+                        } else {
+                            // Scale smooth Gaussian avoidance force by local risk
+                            const localRisk = this.calculateLocalRisk([], obstacles).risk;
+                            steer.x += ((1 + localRisk) * influence) * (dx / distance);
+                            steer.y += ((1 + localRisk) * influence) * (dy / distance);
+                        }
+                    }
+                });
+
+                // Normalize and scale to maxForce
+                const magnitude = Math.sqrt(steer.x ** 2 + steer.y ** 2);
+                if (magnitude > 0) {
+                    steer.x = (steer.x / magnitude) * this.maxForce;
+                    steer.y = (steer.y / magnitude) * this.maxForce;
+                }
+
+                // Apply velocity scaling if imminent collision
+                if (imminentCollision) {
+                    const influence = Math.max(0, steer.x ** 2 + steer.y ** 2);
+                    const criticalThreshold = 0.5 * Math.max(...obstacles.map(o => o.amplitude));
+                    const scalingFactor = 1 - Math.min(1, influence / criticalThreshold);
+
+                    // Scale velocity and acceleration
+                    this.velocity.x *= scalingFactor;
+                    this.velocity.y *= scalingFactor;
+                    this.acceleration.x *= scalingFactor;
+                    this.acceleration.y *= scalingFactor;
+                }
+
+                return steer;
+            }
+
+            flock(agents, obstacles) {
+                const localRiskData = this.calculateLocalRisk(agents, obstacles);
+                const localRisk = localRiskData.risk;
+
+                // Get weights from sliders
+                const separationWeight = parseFloat(separationSlider.value);
+                const wallAvoidanceWeight = parseFloat(wallAvoidanceSlider.value);
+                const obstacleAvoidanceWeight = parseFloat(obstacleAvoidanceSlider.value);
+                const followForceWeight = 1.0;
+
+                // Decrease alignment and cohesion weights in high-risk areas
+                const alignmentWeight = parseFloat(alignmentSlider.value) * (1 - Math.min(localRisk / 10, 0.8));
+                const cohesionWeight = parseFloat(cohesionSlider.value) * (1 - Math.min(localRisk / 10, 0.8));
+
+                const separationForce = this.separation(agents);
+
+                const obstacleAvoidanceForce = this.avoidObstacles(obstacles);
+                const wallAvoidanceForce = this.avoidWalls();
+
+                this.applyForce({
+                    x: separationForce.x * parseFloat(separationSlider.value),
+                    y: separationForce.y * parseFloat(separationSlider.value)
+                });
+
+                // if (followTheLeaderCheckbox.checked && this.isLeader && !formation2Checkbox.checked) {
+
+                // } else {
+                //     if (searchRevealCheckbox.checked) {
+                if (Target) {
+                    // Move directly to the sugar cube
+                    const dx = Target.x - this.position.x;
+                    const dy = Target.y - this.position.y;
+                    const distance = Math.sqrt(dx ** 2 + dy ** 2);
+
+                    const force = {
+                        x: (dx / distance) * this.maxForce,
+                        y: (dy / distance) * this.maxForce
+                    };
+                    this.applyForce(force);
+                    this.applyForce({
+                        x: obstacleAvoidanceForce.x * parseFloat(obstacleAvoidanceSlider.value),
+                        y: obstacleAvoidanceForce.y * parseFloat(obstacleAvoidanceSlider.value)
+                    });
+
+                    this.applyForce({
+                        x: wallAvoidanceForce.x * wallAvoidanceWeight,
+                        y: wallAvoidanceForce.y * wallAvoidanceWeight
+                    });
+
+                    // Update orientation to face the sugar cube
+                    this.orientation = Math.atan2(dy, dx);
+
+                    return; // Skip other behaviors
+                }
+                // }
+                const alignmentForce = this.alignment(agents);
+                const cohesionForce = this.cohesion(agents);
+                this.applyForce({
+                    x: alignmentForce.x * alignmentWeight,
+                    y: alignmentForce.y * alignmentWeight
+                });
+
+                this.applyForce({
+                    x: cohesionForce.x * cohesionWeight,
+                    y: cohesionForce.y * cohesionWeight
+                });
+                // }
+
+                this.applyForce({
+                    x: obstacleAvoidanceForce.x * parseFloat(obstacleAvoidanceSlider.value),
+                    y: obstacleAvoidanceForce.y * parseFloat(obstacleAvoidanceSlider.value)
+                });
+
+                this.applyForce({
+                    x: wallAvoidanceForce.x * wallAvoidanceWeight,
+                    y: wallAvoidanceForce.y * wallAvoidanceWeight
+                });
+
+                if (followTheLeaderCheckbox.checked && !this.isLeader) {
+                    const dx = leader.position.x - this.position.x;
+                    const dy = leader.position.y - this.position.y;
+
+                    if (formation1Checkbox.checked) {
+                        if (formation2Checkbox.checked) {
+                            const radius = 50; // Desired radius of the circle around the leader
+                            const angleStep = (2 * Math.PI) / (agents.length - 1); // Angle step for even spacing
+
+                            // Calculate all target positions on the circle
+                            const targetPositions = [];
+                            for (let i = 0; i < agents.length - 1; i++) {
+                                const angle = angleStep * i;
+                                targetPositions.push({
+                                    x: leader.position.x + Math.cos(angle) * radius,
+                                    y: leader.position.y + Math.sin(angle) * radius,
+                                });
+                            }
+
+                            // Find the closest target position to this agent
+                            let closestTargetIndex = -1;
+                            let closestDistance = Infinity;
+                            targetPositions.forEach((target, index) => {
+                                const dx = target.x - this.position.x;
+                                const dy = target.y - this.position.y;
+                                const distance = Math.sqrt(dx ** 2 + dy ** 2);
+
+                                if (distance < closestDistance) {
+                                    closestDistance = distance;
+                                    closestTargetIndex = index;
+                                }
+                            });
+
+                            // Assign this agent to the closest target and mark it as taken
+                            const target = targetPositions[closestTargetIndex];
+
+                            // Compute steering force to move toward the closest target position
+                            const steer = {
+                                x: target.x - this.position.x,
+                                y: target.y - this.position.y,
+                            };
+
+                            // Normalize and scale the steering force
+                            const magnitude = Math.sqrt(steer.x ** 2 + steer.y ** 2);
+                            if (magnitude > 0) {
+                                steer.x = (steer.x / magnitude) * this.maxForce;
+                                steer.y = (steer.y / magnitude) * this.maxForce;
+                            }
+
+                            this.applyForce(steer);
+                        } else {
+                            // Compute angle between the agent and the leader's path
+                            const angleToLeader = Math.atan2(dy, dx);
+                            const angleDifference = Math.atan2(
+                                Math.sin(angleToLeader - leader.orientation),
+                                Math.cos(angleToLeader - leader.orientation)
+                            );
+
+                            // If the agent is ahead of the leader's orientation, force it to move behind
+                            const leaderPathThreshold = Math.PI / 3; // 30 degrees tolerance
+                            if (Math.abs(angleDifference) < leaderPathThreshold) {
+                                // Push the agent behind the leader
+                                const behindOffset = 50; // Distance to stay behind
+                                const behindTargetX = leader.position.x - Math.cos(leader.orientation) * behindOffset;
+                                const behindTargetY = leader.position.y - Math.sin(leader.orientation) * behindOffset;
+
+                                const steerToBehind = {
+                                    x: behindTargetX - this.position.x,
+                                    y: behindTargetY - this.position.y,
+                                };
+
+                                const magnitude = Math.sqrt(steerToBehind.x ** 2 + steerToBehind.y ** 2);
+                                if (magnitude > 0) {
+                                    steerToBehind.x = (steerToBehind.x / magnitude) * this.maxForce;
+                                    steerToBehind.y = (steerToBehind.y / magnitude) * this.maxForce;
+                                }
+
+                                this.applyForce(steerToBehind);
+                            } else {
+                                // Calculate trailing position based on index or distance
+                                const leaderOffset = 50; // Distance behind the leader
+                                const angleSpread = Math.PI / 6; // Spread angle for trailing agents
+                                const index = agents.indexOf(this);
+
+                                // Calculate desired trailing position
+                                const desiredAngle = leader.orientation + (index % 2 === 0 ? -1 : 1) * angleSpread * Math.floor(index / 2);
+                                const targetX = leader.position.x - Math.cos(desiredAngle) * leaderOffset * (index + 1);
+                                const targetY = leader.position.y - Math.sin(desiredAngle) * leaderOffset * (index + 1);
+
+                                // Calculate force toward trailing position
+                                const steer = {
+                                    x: targetX - this.position.x,
+                                    y: targetY - this.position.y,
+                                };
+
+                                const magnitude = Math.sqrt(steer.x ** 2 + steer.y ** 2);
+                                if (magnitude > 0) {
+                                    steer.x = (steer.x / magnitude) * this.maxForce;
+                                    steer.y = (steer.y / magnitude) * this.maxForce;
+                                }
+
+                                this.applyForce({
+                                    x: steer.x * followForceWeight,
+                                    y: steer.y * followForceWeight
+                                });
+                            }
+                        }
+                    } else {
+                        // Regular follow-the-leader behavior
+                        const followForce = this.followLeader(leader);
+
+                        this.orientation = Math.atan2(dy, dx); // Angle pointing toward the leader
+                        this.applyForce({
+                            x: followForce.x * followForceWeight,
+                            y: followForce.y * followForceWeight
+                        });
+                    }
+                }
+            }
+
+            avoidWalls() {
+                const repulsionRadius = 50; // Distance at which walls start repelling agents
+                const repulsionStrength = this.maxForce; // Use maxForce for scaling
+                let force = { x: 0, y: 0 };
+
+                // Left Wall
+                if (this.position.x < repulsionRadius) {
+                    force.x += (repulsionRadius - this.position.x) / repulsionRadius * repulsionStrength;
+                }
+
+                // Right Wall
+                if (this.position.x > this.canvasWidth - repulsionRadius) {
+                    force.x -= (this.position.x - (this.canvasWidth - repulsionRadius)) / repulsionRadius * repulsionStrength;
+                }
+
+                // Top Wall
+                if (this.position.y < repulsionRadius) {
+                    force.y += (repulsionRadius - this.position.y) / repulsionRadius * repulsionStrength;
+                }
+
+                // Bottom Wall
+                if (this.position.y > this.canvasHeight - repulsionRadius) {
+                    force.y -= (this.position.y - (this.canvasHeight - repulsionRadius)) / repulsionRadius * repulsionStrength;
+                }
+
+                return force;
+            }
+
+            followLeader(leader) {
+                const desiredSeparation = 50; // Adjust as needed
+                const steer = {
+                    x: leader.position.x - this.position.x,
+                    y: leader.position.y - this.position.y
+                };
+
+                const distance = Math.sqrt(steer.x ** 2 + steer.y ** 2);
+
+                if (distance < desiredSeparation) {
+                    // If too close, create a repulsive force
+                    steer.x = -steer.x;
+                    steer.y = -steer.y;
+                }
+
+                // Normalize and scale to maxForce
+                const magnitude = Math.sqrt(steer.x ** 2 + steer.y ** 2);
+                if (magnitude > 0) {
+                    steer.x = (steer.x / magnitude) * this.maxForce;
+                    steer.y = (steer.y / magnitude) * this.maxForce;
+                }
+
+                return steer;
+            }
+
+
+            // Update position and velocity
+            update() {
+
+                // Update perceptionRadius, maxSpeed, maxForce from sliders
+                this.perceptionRadius = parseFloat(perceptionSlider.value);
+                this.maxSpeed = parseFloat(maxSpeedSlider.value);
+                this.maxForce = parseFloat(maxForceSlider.value);
+                this.velocity.x += this.acceleration.x;
+                this.velocity.y += this.acceleration.y;
+
+                // Limit the velocity to the maximum speed
+                const speed = Math.sqrt(this.velocity.x ** 2 + this.velocity.y ** 2);
+                if (speed > this.maxSpeed) {
+                    this.velocity.x = (this.velocity.x / speed) * this.maxSpeed;
+                    this.velocity.y = (this.velocity.y / speed) * this.maxSpeed;
+                }
+
+                this.position.x += this.velocity.x;
+                this.position.y += this.velocity.y;
+
+                // Update orientation based on velocity
+                this.updateOrientation();
+
+                // Reset acceleration after each update
+                this.acceleration.x = 0;
+                this.acceleration.y = 0;
+            }
+
+            updateLedger(index) {
+                ledger.agents[index] = {
+                    position: { x: this.position.x, y: this.position.y },
+                    velocity: { x: this.velocity.x, y: this.velocity.y },
+                    orientation: Math.atan2(this.velocity.y, this.velocity.x)
+                };
+            }
+
+            // Update orientation based on velocity
+            updateOrientation() {
+                const targetOrientation = Math.atan2(this.velocity.y, this.velocity.x);
+                const angleDifference = targetOrientation - this.orientation;
+
+                // Normalize angleDifference to [-PI, PI]
+                const normalizedDifference = Math.atan2(
+                    Math.sin(angleDifference),
+                    Math.cos(angleDifference)
+                );
+
+                // Apply smoothing factor to avoid abrupt changes
+                const smoothingFactor = 0.1; // Adjust for smoothness
+                this.orientation += normalizedDifference * smoothingFactor;
+
+                // Normalize orientation to [-PI, PI]
+                this.orientation = Math.atan2(
+                    Math.sin(this.orientation),
+                    Math.cos(this.orientation)
+                );
+            }
+
+            calculateLocalRisk(agents, obstacles) {
+                let totalRisk = 0;
+                let nearbyAgents = 0;
+                let nearbyObstacles = 0;
+
+                // Evaluate nearby agents
+                agents.forEach(other => {
+                    if (other !== this) {
+                        const dx = this.position.x - other.position.x;
+                        const dy = this.position.y - other.position.y;
+                        const distance = Math.sqrt(dx ** 2 + dy ** 2);
+
+                        if (distance < this.perceptionRadius) {
+                            nearbyAgents++;
+                            const relativeVelocity = Math.sqrt(
+                                (this.velocity.x - other.velocity.x) ** 2 +
+                                (this.velocity.y - other.velocity.y) ** 2
+                            );
+
+                            // Risk contribution from agents
+                            totalRisk += (1 / distance) * 2.0 + relativeVelocity * 1.0;
+                        }
+                    }
+                });
+
+                // Evaluate nearby obstacles
+                ledger.obstacles.forEach(obstacle => {
+                    const dx = this.position.x - obstacle.x;
+                    const dy = this.position.y - obstacle.y;
+                    const distance = Math.sqrt(dx ** 2 + dy ** 2);
+
+                    if (distance < this.perceptionRadius) {
+                        nearbyObstacles++;
+                        const proximityFactor = (1 - distance / obstacle.sigma);
+
+                        // Risk contribution from obstacles
+                        totalRisk += (1 / distance) * 3.0 + proximityFactor * obstacle.amplitude * 2.0;
+                    }
+                });
+
+                // Normalize risk by total objects in the vicinity
+                const totalObjects = nearbyAgents + nearbyObstacles;
+                if (totalObjects > 0) {
+                    totalRisk /= totalObjects;
+                }
+
+                return {
+                    risk: totalRisk,
+                    agents: nearbyAgents,
+                    obstacles: nearbyObstacles
+                };
+            }
+
+
+        }
+
+        class Leader extends Agent {
+            constructor(x, y, canvasWidth, canvasHeight, color) {
+                super(x, y, canvasWidth, canvasHeight, color);
+                this.color = "blue";
+                this.isLeader = true; // You can use true/false instead of 1/0
+            }
+        }
+
+        // Listen for keydown events to control the leader
+        window.addEventListener('keydown', (event) => {
+            if (!followTheLeaderCheckbox.checked) return; // Only active in "Follow" mode
+
+            const speed = 5; // Speed of movement for the leader
+            switch (event.key) {
+                case 'ArrowUp': // Move up
+                    leader.velocity.y -= speed;
+                    break;
+                case 'ArrowDown': // Move down
+                    leader.velocity.y += speed;
+                    break;
+                case 'ArrowLeft': // Move left
+                    leader.velocity.x -= speed;
+                    break;
+                case 'ArrowRight': // Move right
+                    leader.velocity.x += speed;
+                    break;
+                default:
+                    return; // Ignore other keys
+            }
+
+            // Normalize velocity to prevent exceeding max speed
+            const magnitude = Math.sqrt(leader.velocity.x ** 2 + leader.velocity.y ** 2);
+            if (magnitude > leader.maxSpeed) {
+                leader.velocity.x = (leader.velocity.x / magnitude) * leader.maxSpeed;
+                leader.velocity.y = (leader.velocity.y / magnitude) * leader.maxSpeed;
+            }
+
+            // Prevent default scrolling behavior for arrow keys
+            event.preventDefault();
+        });
+
+
+        const canvas = document.getElementById('swarmCanvas');
+        const context = canvas.getContext('2d');
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        const canvasWidth = canvas.width;
+        const canvasHeight = canvas.height;
+
+        // Create a new image object
+        const backgroundImage = new Image();
+
+        // Set the source of the image
+        backgroundImage.src = 'EOD_Range_Snap.jpg'; // Replace with the path to your image
+
+        const obstacles = [
+            { x: 150, y: 200, amplitude: 1.5, sigma: 50 },  // Example obstacle
+            { x: 400, y: 300, amplitude: 1.0, sigma: 70 },  // Another obstacle
+            { x: 600, y: 400, amplitude: 2.0, sigma: 30 }   // Smaller, sharper influence
+        ];
+
+
+        const leader = new Leader(Math.random() * canvasWidth, Math.random() * canvasHeight, canvasWidth, canvasHeight);
+
+        const agents = [leader];
+
+        // Initialize 9 more agents
+        for (let i = 0; i < 9; i++) {
+            agents.push(new Agent(Math.random() * canvasWidth, Math.random() * canvasHeight, canvasWidth, canvasHeight));
+        }
+
+        const ledger = {
+            agents: [], // Array to store all drones (agents)
+            obstacles: [] // Array to store all obstacle data
+        };
+
+        obstacles.forEach((obstacle, index) => {
+            ledger.obstacles[index] = {
+                position: { x: obstacle.x, y: obstacle.y },
+                amplitude: obstacle.amplitude,
+                sigma: obstacle.sigma
+            };
+        });
+
+        const showPerceptionCheckbox = document.getElementById('showPerceptionCheckbox');
+        const followTheLeaderCheckbox = document.getElementById('followTheLeaderCheckbox');
+        const formation1Checkbox = document.getElementById('formation1Checkbox');
+        const formation2Checkbox = document.getElementById('formation2Checkbox');
+
+        // Update displayed slider values
+        function updateSliderValues() {
+            separationValue.textContent = separationSlider.value;
+            alignmentValue.textContent = alignmentSlider.value;
+            cohesionValue.textContent = cohesionSlider.value;
+            perceptionValue.textContent = perceptionSlider.value;
+            maxSpeedValue.textContent = maxSpeedSlider.value;
+            maxForceValue.textContent = maxForceSlider.value;
+            wallAvoidanceValue.textContent = wallAvoidanceSlider.value;
+            obstacleAvoidanceValue.textContent = obstacleAvoidanceSlider.value;
+        }
+
+        // Add event listeners to sliders
+        separationSlider.addEventListener('input', updateSliderValues);
+        alignmentSlider.addEventListener('input', updateSliderValues);
+        cohesionSlider.addEventListener('input', updateSliderValues);
+        perceptionSlider.addEventListener('input', updateSliderValues);
+        maxSpeedSlider.addEventListener('input', updateSliderValues);
+        maxForceSlider.addEventListener('input', updateSliderValues);
+        wallAvoidanceSlider.addEventListener('input', updateSliderValues);
+        obstacleAvoidanceSlider.addEventListener('input', updateSliderValues);
+
+        // Initial update of slider values
+        updateSliderValues();
+
+
+        function calculateHighRiskZones() {
+            const riskZones = [];
+
+            ledger.obstacles.forEach(obstacle => {
+                let totalProximity = 0; // Sum of distances to agents
+                let totalVelocity = 0; // Sum of relative velocities
+                let agentCount = 0; // Number of agents in the risk zone
+
+                ledger.agents.forEach(agent => {
+                    const dx = agent.position.x - obstacle.position.x;
+                    const dy = agent.position.y - obstacle.position.y;
+                    const distance = Math.sqrt(dx ** 2 + dy ** 2);
+
+                    // Check if agent is within the obstacle's influence radius
+                    if (distance < obstacle.sigma) {
+                        agentCount++;
+                        totalProximity += distance;
+
+                        // Calculate relative velocity
+                        const relativeVelocity = Math.sqrt(
+                            agent.velocity.x ** 2 + agent.velocity.y ** 2
+                        );
+                        totalVelocity += relativeVelocity;
+                    }
+                });
+
+                if (agentCount > 0) {
+                    const avgProximity = totalProximity / agentCount;
+                    const avgVelocity = totalVelocity / agentCount;
+
+                    // Weights for risk factors
+                    const w_p = 2.0; // Weight for proximity
+                    const w_d = 1.5; // Weight for density
+                    const w_v = 1.0; // Weight for velocity
+
+                    // Calculate severity
+                    const severity = w_p * (1 / avgProximity) + w_d * agentCount + w_v * avgVelocity;
+
+                    // Add the risk zone with severity
+                    riskZones.push({
+                        x: obstacle.position.x,
+                        y: obstacle.position.y,
+                        radius: obstacle.sigma,
+                        severity: severity
+                    });
+                }
+            });
+
+            return riskZones;
+        }
+
+        function drawObstaclesWithGradient(context, obstacles) {
+            obstacles.forEach(obstacle => {
+                // Create radial gradient
+                const gradient = context.createRadialGradient(
+                    obstacle.x, obstacle.y, 0,
+                    obstacle.x, obstacle.y, obstacle.sigma
+                );
+                gradient.addColorStop(0, 'rgba(255, 0, 0, 0.5)');  // Strong influence
+                gradient.addColorStop(1, 'rgba(255, 0, 0, 0)');    // Fades out
+
+                // Draw the influence area
+                context.beginPath();
+                context.arc(obstacle.x, obstacle.y, obstacle.sigma, 0, Math.PI * 2);
+                context.fillStyle = gradient;
+                context.fill();
+
+                // Draw the obstacle core
+                context.beginPath();
+                context.arc(obstacle.x, obstacle.y, 10, 0, Math.PI * 2);
+                context.fillStyle = 'red';
+                context.fill();
+            });
+        }
+
+        let isSugarCubeInFOV;
+        let sugarCubeReported = false;
+
+        // Animation loop
+        function animate() {
+
+            context.clearRect(0, 0, canvas.width, canvas.height);
+            const canvasAspectRatio = canvas.width / canvas.height;
+            const imageAspectRatio = backgroundImage.width / backgroundImage.height;
+
+            let drawWidth, drawHeight, offsetX, offsetY;
+
+            if (canvasAspectRatio > imageAspectRatio) {
+                // Canvas is wider relative to the image
+                drawWidth = canvas.width;
+                drawHeight = canvas.width / imageAspectRatio;
+                offsetX = 0;
+                offsetY = (canvas.height - drawHeight) / 2; // Center vertically
+            } else {
+                // Canvas is taller relative to the image
+                drawWidth = canvas.height * imageAspectRatio;
+                drawHeight = canvas.height;
+                offsetX = (canvas.width - drawWidth) / 2; // Center horizontally
+                offsetY = 0;
+            }
+            context.drawImage(backgroundImage, 0, 0, canvas.width, canvas.height);
+
+            isSugarCubeInFOV = false;
+
+            if (Target) drawTarget(context);
+
+
+            // Iterate through agents to check if sugar cube is in FoV
+            agents.forEach((agent, index) => {
+                agent.flock(agents, obstacles); // Apply flocking behaviors
+                agent.update(); // Update position and velocity
+                agent.updateLedger(index); // Update ledger with agent state
+
+                if (searchRevealCheckbox.checked) {
+                    addPheromone(agent.position.x, agent.position.y);
+                    // Check if the sugar cube is in this agent's field of view
+                    if (!isSugarCubeInFOV && isInFieldOfView(agent, sugarCube)) {
+                        isSugarCubeInFOV = true;
+                        sugarCubeReported = true;
+                    }
+                }
+
+
+                // // Draw the agent
+                // context.beginPath();
+                // context.fillStyle = agent.color;
+                // context.arc(agent.position.x, agent.position.y, 3, 0, Math.PI * 2);
+                // context.fill();
+
+                const symbol = new Image();
+                if (!Target && followTheLeaderCheckbox.checked && agent.isLeader) {
+                    symbol.src = './air.hostile.png';
+                } else {
+                    symbol.src = './air.friend.png';
+                }
+                // Draw the symbol at the agent's position
+                context.drawImage(
+                    symbol,
+                    agent.position.x - 5, // Adjust for symbol size
+                    agent.position.y - 6,
+                    10, // Symbol width
+                    12  // Symbol height
+                );
+
+                // Draw orientation marker if checkbox is checked
+                if (showOrientationCheckbox.checked) drawOrientation(context, agent);
+
+                // Draw perception radius if checkbox is checked
+                if (showPerceptionCheckbox.checked) {
+                    context.beginPath();
+                    context.strokeStyle = 'rgba(255, 255, 255, 0.5)'; // Semi-transparent white
+                    context.lineWidth = 1;
+                    context.setLineDash([5, 5]); // Dotted line: 5px dash, 5px gap
+                    context.arc(agent.position.x, agent.position.y, agent.perceptionRadius, 0, Math.PI * 2);
+                    context.stroke();
+                    context.setLineDash([]); // Reset line dash
+                }
+
+                // Draw field of view if enabled
+                if (showFOVCheckbox.checked && (!agent.isLeader || !followTheLeaderCheckbox.checked)) {
+                    drawFieldOfView(context, agent);
+                    // drawFieldOfViewDebug(context, agent);
+                }
+            });
+
+            // Draw the sugar cube with the updated "seen" state
+            if (searchRevealCheckbox.checked) {
+                // Update pheromone map for decay and removal
+                updatePheromoneMap();
+                drawPheromoneMap(context);
+                drawSugarCube(context, isSugarCubeInFOV);
+            }
+
+            // Draw the obstacles
+            drawObstaclesWithGradient(context, obstacles);
+
+            requestAnimationFrame(animate);
+        }
+
+        function drawSugarCube(context, isRed) {
+            context.fillStyle = isRed ? "red" : "white"; // Turn red if in FoV
+            context.fillRect(sugarCube.position.x, sugarCube.position.y, 10, 10);
+        }
+
+        animate();
+
+        function drawOrientation(context, agent) {
+            const arrowLength = 5; // Length of the orientation arrow
+            const arrowX = agent.position.x + Math.cos(agent.orientation) * arrowLength;
+            const arrowY = agent.position.y + Math.sin(agent.orientation) * arrowLength;
+
+            context.beginPath();
+            context.moveTo(agent.position.x, agent.position.y);
+            context.lineTo(arrowX, arrowY);
+            context.strokeStyle = 'white';
+            context.lineWidth = 1;
+            context.stroke();
+        }
+
+        let sugarCube = { position: { x: Math.random() * canvasWidth, y: Math.random() * canvasHeight } };
+
+        function isInFieldOfView(agent, object) {
+            const fovAngle = Math.PI / 4; // 90-degree FoV
+            const perceptionRadius = agent.perceptionRadius;
+
+            // Calculate the vector to the object
+            const dx = object.position.x - agent.position.x;
+            const dy = object.position.y - agent.position.y;
+            const distance = Math.sqrt(dx ** 2 + dy ** 2);
+
+            // Check if the object is within the perception radius
+            if (distance >= perceptionRadius) {
+                return false;
+            }
+
+            // Calculate the boundary angles
+            const leftBoundary = agent.orientation - fovAngle;
+            const rightBoundary = agent.orientation + fovAngle;
+
+            // Calculate the angle to the object relative to the agent's orientation
+            const angleToObject = Math.atan2(dy, dx);
+
+            // Normalize the angles for comparison
+            const normalizeAngle = (angle) =>
+                (angle + 2 * Math.PI) % (2 * Math.PI); // Normalize to [0, 2π)
+
+            const normalizedAngleToObject = normalizeAngle(angleToObject);
+            const normalizedLeftBoundary = normalizeAngle(leftBoundary);
+            const normalizedRightBoundary = normalizeAngle(rightBoundary);
+
+            // Check if the angle to the object is within the FoV boundaries
+            if (normalizedLeftBoundary < normalizedRightBoundary) {
+                return (
+                    normalizedLeftBoundary <= normalizedAngleToObject &&
+                    normalizedAngleToObject <= normalizedRightBoundary
+                );
+            } else {
+                // Handles the case where the FoV wraps around 0 radians
+                return (
+                    normalizedAngleToObject >= normalizedLeftBoundary ||
+                    normalizedAngleToObject <= normalizedRightBoundary
+                );
+            }
+        }
+
+
+
+        function drawFieldOfViewDebug(context, agent) {
+            const fovAngle = Math.PI / 4; // 90-degree FoV
+            const perceptionRadius = agent.perceptionRadius; // Use the agent's perception radius for the cone length
+
+            // Calculate the boundary angles
+            const leftBoundary = agent.orientation - fovAngle;
+            const rightBoundary = agent.orientation + fovAngle;
+
+            // Calculate the end points of the boundaries
+            const leftX = agent.position.x + Math.cos(leftBoundary) * perceptionRadius;
+            const leftY = agent.position.y + Math.sin(leftBoundary) * perceptionRadius;
+
+            const rightX = agent.position.x + Math.cos(rightBoundary) * perceptionRadius;
+            const rightY = agent.position.y + Math.sin(rightBoundary) * perceptionRadius;
+
+            // Draw the FoV triangle
+            context.beginPath();
+            context.moveTo(agent.position.x, agent.position.y); // Start at the agent's position
+            context.lineTo(leftX, leftY); // Draw to the left boundary
+            context.lineTo(rightX, rightY); // Draw to the right boundary
+            context.closePath(); // Close the triangle
+
+            // Fill the triangle
+            context.fillStyle = 'rgba(0, 255, 0, 0.2)'; // Semi-transparent green
+            context.fill();
+
+            // Draw the boundary lines
+            context.strokeStyle = 'rgba(0, 255, 0, 0.5)';
+            context.lineWidth = 1;
+            context.stroke();
+        }
+
+        const pheromoneMap = []; // Array to store RBFs
+
+        function addPheromone(x, y, contribution = 1) {
+            const radius = 50; // Radius of influence
+            const maxLifetime = 10000; // Maximum lifetime in milliseconds (10 seconds)
+            const now = performance.now(); // Current high-precision time
+
+            // Calculate new expiration time
+            const newExpirationTime = now + maxLifetime * contribution;
+
+            // Find existing pheromone within the radius
+            let pheromone = pheromoneMap.find(p => {
+                const dx = p.x - x;
+                const dy = p.y - y;
+                return Math.sqrt(dx ** 2 + dy ** 2) < radius;
+            });
+
+            if (pheromone) {
+                // Reinforce existing pheromone
+                pheromone.intensity = Math.min(
+                    1.0, // Max intensity
+                    pheromone.intensity + contribution
+                );
+
+                // Update the expiration time
+                pheromone.expirationTime = Math.max(pheromone.expirationTime, newExpirationTime);
+            } else {
+                // Add a new pheromone
+                pheromoneMap.push({
+                    x,
+                    y,
+                    radius,
+                    intensity: contribution,
+                    expirationTime: newExpirationTime
+                });
+            }
+        }
+
+        let lastUpdateTime = performance.now();
+
+        function updatePheromoneMap() {
+            const now = performance.now(); // Current time
+            const decayInterval = 16.67; // Approx. time per frame at 60 FPS (in ms)
+            // const baseDecayRate = 0.99; // Base decay rate per frame
+            const baseDecayRate = 1; // Base decay rate per frame
+            const intensityDecayFactor = 0.05; // Reduction in decay rate per unit intensity
+
+            for (let i = pheromoneMap.length - 1; i >= 0; i--) {
+                const pheromone = pheromoneMap[i];
+
+                // Adjust decay rate based on intensity
+                const adjustedDecayRate = Math.max(
+                    baseDecayRate - pheromone.intensity * intensityDecayFactor,
+                    0.95 // Ensure a minimum decay rate
+                );
+
+                // Apply adjusted decay
+                pheromone.intensity *= Math.pow(adjustedDecayRate, (now - lastUpdateTime) / decayInterval);
+
+                // Remove expired pheromones
+                if (now >= pheromone.expirationTime || pheromone.intensity < 0.01) {
+                    pheromoneMap.splice(i, 1);
+                }
+            }
+
+            lastUpdateTime = now;
+        }
+
+
+
+        function drawPheromoneMap(context) {
+            pheromoneMap.forEach(({ x, y, radius, intensity }) => {
+                const gradient = context.createRadialGradient(x, y, 0, x, y, radius);
+                const unexploredColor = `rgba(0, 255, 255, 1)`; // Aqua for unexplored
+                // const exploredColor = `rgba(255, 0, 255, ${intensity})`; // Fuschia for explored
+
+                gradient.addColorStop(0, unexploredColor);
+                gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+
+                context.beginPath();
+                context.arc(x, y, radius, 0, Math.PI * 2);
+                context.fillStyle = gradient;
+                context.fill();
+            });
+        }
+
+
+        canvas.addEventListener('click', (event) => {
+            const rect = canvas.getBoundingClientRect();
+            Target = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+        });
+
+        function drawTarget(context) {
+            if (Target) {
+                // context.beginPath();
+                // context.arc(Target.x, Target.y, 10, 0, Math.PI * 2);
+                // context.strokeStyle = 'red';
+                // context.lineWidth = 2;
+                // context.stroke();
+                const symbol = new Image();
+                symbol.src = './land.hostile.png';
+                // Draw the symbol at the agent's position
+                context.drawImage(
+                    symbol,
+                    Target.x - 10, // Adjust for symbol size
+                    Target.y - 10,
+                    20, // Symbol width
+                    20  // Symbol height
+                );
+            }
+        }
+    </script>
+</body>
+
+</html>
