@@ -161,6 +161,8 @@
     <script>
 
         let Target = null;
+        let engagingDrones = []; // Array to track drones engaging the target
+        const maxEngagingDrones = 3; // Number of drones to engage the target
 
         function drawFieldOfView(context, agent) {
             const fovAngle = Math.PI / 4; // 90-degree FoV
@@ -181,9 +183,9 @@
             const gradient = context.createRadialGradient(
                 agent.position.x, agent.position.y, 0, // Inner circle (agent's position)
                 agent.position.x, agent.position.y, perceptionRadius // Outer circle
-            );
-            gradient.addColorStop(0, 'rgba(0, 255, 0, 0.38)'); // Fully visible near the agent
-            gradient.addColorStop(1, 'rgba(0, 255, 0, 0)');   // Fully transparent at the edge
+            )
+            gradient.addColorStop(1, 'rgba(128, 224, 255, 0)');   // Fully transparent at the edge
+            gradient.addColorStop(0, 'rgba(128, 224, 255, 0.38)'); // Fully visible near the agent
 
             // Draw the cone
             context.beginPath();
@@ -283,6 +285,20 @@
                 this.maxForce = 0.1; // Maximum steering force
                 this.canvasWidth = canvasWidth;
                 this.canvasHeight = canvasHeight;
+            }
+
+            checkCollisionWithTarget(target) {
+                if (!target) return;
+
+                const dx = this.position.x - target.x;
+                const dy = this.position.y - target.y;
+                const distance = Math.sqrt(dx ** 2 + dy ** 2);
+
+                if (distance < 5) { // Collision threshold
+                    // targetImage = targetImageChanged; // Change to the new image
+                    Target.isNeutralized = 1;
+                    console.log(`Agent at (${this.position.x}, ${this.position.y}) collided with the target!`);
+                }
             }
 
             // Add a force to the agent's acceleration
@@ -483,7 +499,7 @@
 
                 // } else {
                 //     if (searchRevealCheckbox.checked) {
-                if (Target) {
+                if (Target && !Target.isNeutralized && this.isEngagingTarget) {
                     // Move directly to the sugar cube
                     const dx = Target.x - this.position.x;
                     const dy = Target.y - this.position.y;
@@ -733,6 +749,9 @@
                 // Reset acceleration after each update
                 this.acceleration.x = 0;
                 this.acceleration.y = 0;
+
+                // Check for collision with the target
+                this.checkCollisionWithTarget(Target);
             }
 
             updateLedger(index) {
@@ -1067,9 +1086,10 @@
                 // context.fill();
 
                 const symbol = new Image();
-                if (!Target && followTheLeaderCheckbox.checked && agent.isLeader) {
+                if (followTheLeaderCheckbox.checked && agent.isLeader) {
                     symbol.src = './air.hostile.png';
-                } else {
+                }
+                else {
                     symbol.src = './air.friend.png';
                 }
                 // Draw the symbol at the agent's position
@@ -1306,6 +1326,18 @@
         canvas.addEventListener('click', (event) => {
             const rect = canvas.getBoundingClientRect();
             Target = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+            // Reset previously engaging drones
+            engagingDrones.forEach(drone => (drone.isEngagingTarget = false));
+            engagingDrones = [];
+
+            // Select `maxEngagingDrones` randomly or based on proximity
+            const unengagedDrones = agents.filter(drone => !drone.isEngagingTarget);
+            for (let i = 0; i < maxEngagingDrones && unengagedDrones.length > 0; i++) {
+                const drone = unengagedDrones.pop(); // You can use proximity-based sorting here
+                drone.isEngagingTarget = true;
+                engagingDrones.push(drone);
+            }
+            console.log(engagingDrones)
         });
 
         function drawTarget(context) {
@@ -1316,7 +1348,7 @@
                 // context.lineWidth = 2;
                 // context.stroke();
                 const symbol = new Image();
-                symbol.src = './land.hostile.png';
+                symbol.src = './land.' + (Target.isNeutralized ? 'neutralized' : 'hostile') + '.png';
                 // Draw the symbol at the agent's position
                 context.drawImage(
                     symbol,
@@ -1331,6 +1363,10 @@
         canvas.addEventListener('dblclick', () => {
             // Clear the target
             Target = null;
+
+            // Reset engaging drones
+            engagingDrones.forEach(drone => (drone.isEngagingTarget = false));
+            engagingDrones = [];
         });
     </script>
 </body>
