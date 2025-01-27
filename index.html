@@ -15,8 +15,8 @@
 
         canvas {
             display: block;
-            width: 1024px;
-            height: 741px;
+            width: 100%;
+            height: 100%;
         }
 
         /* Existing styles */
@@ -96,32 +96,22 @@
             position: absolute;
             top: 0;
             left: 0;
-            max-width: 1024px;
-            /* height: 100%; */
+            width: 100%;
+            height: 100%;
             pointer-events: none;
             /* Prevent interfering with interactions */
             z-index: 10;
             /* Ensure it's above the canvas */
         }
-
-        /* Default: Hide the overlay for mobile */
-        #bftOverlay {
-            display: none;
-        }
-
-        /* Show the overlay for larger screens */
-        @media (min-width: 768px) {
-            #bftOverlay {
-                display: block;
-            }
-        }
     </style>
 </head>
 
 <body>
+
+
     <canvas id="swarmCanvas"></canvas>
     <div id="bftOverlay">
-        <img width="1024px" src="FBCB2.png" alt="BFT Overlay" />
+        <img src="FBCB2.png" alt="BFT Overlay" />
     </div>
     <div id="title">DROID-RAID Proof of Concept v2.4</div>
     <details id="controlPanel">
